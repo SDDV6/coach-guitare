@@ -88,6 +88,12 @@
   #overlay p{color:var(--muted); max-width:460px; line-height:1.5;}
   #overlay button{font-size:1.15rem; padding:14px 30px;}
   #overlay.hidden{display:none;}
+  /* --- Ampli --- */
+  .sliders{display:flex; flex-direction:column; gap:14px; margin-top:16px; max-width:440px;}
+  .sliders label{display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:.9rem;}
+  input[type=range]{width:100%; accent-color:var(--accent); height:28px;}
+  #ampPresets button.active{border-color:var(--accent); color:var(--accent); font-weight:600;}
+  #ampToggle.on{background:var(--ok);}
   button,select{touch-action:manipulation;}
   select{font-size:16px;} /* évite le zoom automatique d'iOS sur les champs */
   /* --- Adaptation téléphone --- */
@@ -117,7 +123,7 @@
 <div id="overlay">
   <h2>🎸 Coach Guitare IA</h2>
   <p>L'application écoute ta guitare avec le micro de ton appareil et reconnaît chaque note que tu joues, en temps réel. Aucun son n'est envoyé sur internet : toute l'analyse se fait sur ton appareil.</p>
-  <p style="font-size:.85rem">💡 Avec un ampli virtuel (Tonebridge…) : fais sortir le son par un haut-parleur (pas un casque) pour que le micro puisse l'entendre, et privilégie un son clair, peu saturé, pour une meilleure détection.</p>
+  <p style="font-size:.85rem">💡 Plus besoin de Tonebridge : l'onglet <b>Ampli</b> transforme l'app en ampli virtuel (son clair, crunch, lead…) qui fonctionne en même temps que la détection de notes. Branche des écouteurs filaires avant de l'allumer !</p>
   <button id="overlayBtn" class="btn primary">🎤 Activer le micro</button>
   <p id="overlayErr" style="color:var(--err)"></p>
 </div>
@@ -135,6 +141,7 @@
   <button data-tab="free">Manche</button>
   <button data-tab="scales">Gammes</button>
   <button data-tab="chords">Accords</button>
+  <button data-tab="amp">Ampli</button>
   <button data-tab="progress">Progression</button>
 </nav>
 
@@ -222,6 +229,37 @@
   </div>
 </section>
 
+<!-- ================= AMPLI ================= -->
+<section id="tab-amp">
+  <div class="card">
+    <h2>Ampli virtuel intégré</h2>
+    <p class="hint" style="margin-top:0">⚠️ <b>Branche des écouteurs filaires ou un casque AVANT d'allumer l'ampli.</b> Avec le haut-parleur du téléphone, le micro s'entendrait lui-même et ça sifflerait très fort (effet larsen). L'ampli fonctionne en même temps que la détection : tu peux le laisser allumé et utiliser tous les autres onglets.</p>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="ampToggle">🔊 Allumer l'ampli</button>
+    </div>
+    <div class="row" style="margin-top:14px" id="ampPresets">
+      <button class="btn active" data-preset="clean">Clair</button>
+      <button class="btn" data-preset="crunch">Crunch</button>
+      <button class="btn" data-preset="lead">Lead</button>
+      <button class="btn" data-preset="metal">Métal</button>
+    </div>
+    <div class="sliders">
+      <label>Gain (saturation) <input type="range" id="ampDrive" min="0" max="100" value="8"></label>
+      <label>Volume <input type="range" id="ampVol" min="0" max="100" value="70"></label>
+      <label>Réverb <input type="range" id="ampRev" min="0" max="100" value="20"></label>
+    </div>
+    <div class="bigmsg" id="ampMsg"></div>
+    <p class="hint">Le son de l'ampli sort de tes écouteurs pendant que le micro écoute ta guitare « sèche ». La détection de notes analyse toujours le son propre de ta guitare, jamais le son saturé — la reconnaissance reste donc précise même en Métal.</p>
+  </div>
+  <div class="card">
+    <h2>Sensibilité du micro</h2>
+    <div class="sliders" style="margin-top:4px">
+      <label>Sensibilité (guitare électrique non branchée → à droite) <input type="range" id="sensSlider" min="0" max="100" value="40"></label>
+    </div>
+    <p class="hint">Si l'app n'entend pas ta guitare (électrique non amplifiée, jeu doux), glisse vers la droite et rapproche le téléphone des cordes. Si elle détecte des notes fantômes à cause du bruit ambiant, glisse vers la gauche. La petite barre verte en haut à droite montre ce que le micro entend. Ton réglage est mémorisé.</p>
+  </div>
+</section>
+
 <!-- ================= PROGRESSION ================= -->
 <section id="tab-progress">
   <div class="stats">
@@ -260,13 +298,15 @@ const freqToMidiFloat = f => 69 + 12 * Math.log2(f/440);
    ============================================================ */
 let audioCtx = null, analyser = null, timeBuf = null, micOn = false;
 const listeners = new Set();   // reçoit {type:'pitch'|'note'|'silence', midi, cents, freq}
+// Seuil de volume en dessous duquel on considère qu'il y a silence (réglable, mémorisé)
+let RMS_THRESHOLD = parseFloat(localStorage.getItem('cg_thr') || '0.012');
 
 function autoCorrelate(buf, sampleRate){
   const SIZE = buf.length;
   let rms = 0;
   for (let i = 0; i < SIZE; i++){ const v = buf[i]; rms += v*v; }
   rms = Math.sqrt(rms/SIZE);
-  if (rms < 0.012) return {freq:-1, rms};
+  if (rms < RMS_THRESHOLD) return {freq:-1, rms};
 
   // On rogne les bords faibles du signal pour stabiliser la corrélation
   let r1 = 0, r2 = SIZE-1;
@@ -332,13 +372,15 @@ async function startMic(){
     const stream = await navigator.mediaDevices.getUserMedia({
       audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false }
     });
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive'});
     await audioCtx.resume(); // iOS Safari démarre parfois le contexte en état suspendu
     const src = audioCtx.createMediaStreamSource(stream);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
     src.connect(analyser);
     timeBuf = new Float32Array(analyser.fftSize);
+    amp = buildAmp(audioCtx, src); // ampli virtuel (éteint par défaut)
+    ampApply();
     micOn = true;
     document.getElementById('micBtn').textContent = '🎤 Micro actif';
     document.getElementById('micBtn').classList.add('on');
@@ -362,6 +404,92 @@ document.addEventListener('visibilitychange', () => {
 // Hook de test (simulation d'une note sans micro)
 window._debugNote = (midi, cents=0) => { emit({type:'pitch', freq:midiFreq(midi), midi, cents}); emit({type:'note', midi, cents}); bumpNoteCounter(); };
 window._debugSilence = () => emit({type:'silence'});
+
+/* ============================================================
+   Ampli virtuel : micro → saturation → tonalité → réverb → écouteurs
+   ============================================================ */
+let amp = null;
+
+// Courbe de saturation douce : amount 0 (transparent) → 1 (très saturé)
+function distCurve(amount){
+  const k = amount*amount*180 + 2;
+  const n = 2048, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++){
+    const x = i*2/n - 1;
+    curve[i] = (3+k)*x / (3 + k*Math.abs(x));
+  }
+  return curve;
+}
+// Réponse impulsionnelle synthétique pour la réverb (bruit à décroissance exponentielle)
+function makeIR(ctx, seconds=1.7, decay=2.8){
+  const rate = ctx.sampleRate, len = Math.floor(rate*seconds);
+  const buf = ctx.createBuffer(2, len, rate);
+  for (let ch = 0; ch < 2; ch++){
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, decay);
+  }
+  return buf;
+}
+function buildAmp(ctx, src){
+  const input = ctx.createGain();  input.gain.value = 1.4;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 75;
+  const pre = ctx.createGain();
+  const shaper = ctx.createWaveShaper(); shaper.oversample = '4x';
+  const tone = ctx.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = 6000;
+  const body = ctx.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 500; body.gain.value = -3;
+  const post = ctx.createGain();
+  const dry = ctx.createGain(); const wet = ctx.createGain();
+  const conv = ctx.createConvolver(); conv.buffer = makeIR(ctx);
+  const master = ctx.createGain(); master.gain.value = 0; // éteint au départ
+  src.connect(input); input.connect(hp); hp.connect(pre); pre.connect(shaper);
+  shaper.connect(tone); tone.connect(body); body.connect(post);
+  post.connect(dry); dry.connect(master);
+  post.connect(conv); conv.connect(wet); wet.connect(master);
+  master.connect(ctx.destination);
+  return {pre, shaper, tone, post, dry, wet, master, on:false};
+}
+function ampApply(){
+  if (!amp) return;
+  const drive = document.getElementById('ampDrive').value/100;
+  const vol = document.getElementById('ampVol').value/100;
+  const rev = document.getElementById('ampRev').value/100;
+  amp.shaper.curve = distCurve(drive);
+  amp.pre.gain.value = 1 + drive*14;
+  amp.post.gain.value = (0.9 - drive*0.5) * vol * 1.8; // compense le niveau quand le gain monte
+  amp.dry.gain.value = 1 - rev*0.5;
+  amp.wet.gain.value = rev*0.9;
+}
+const AMP_PRESETS = { clean:{drive:8, tone:6000}, crunch:{drive:35, tone:4500}, lead:{drive:65, tone:3800}, metal:{drive:90, tone:3000} };
+document.getElementById('ampPresets').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const p = AMP_PRESETS[b.dataset.preset];
+  document.querySelectorAll('#ampPresets button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  document.getElementById('ampDrive').value = p.drive;
+  if (amp) amp.tone.frequency.value = p.tone;
+  ampApply();
+});
+['ampDrive','ampVol','ampRev'].forEach(id => document.getElementById(id).addEventListener('input', ampApply));
+document.getElementById('ampToggle').addEventListener('click', () => {
+  const btn = document.getElementById('ampToggle');
+  const msg = document.getElementById('ampMsg');
+  if (!micOn){ msg.textContent = 'Active d’abord le micro (bouton en haut).'; msg.className = 'bigmsg err'; return; }
+  amp.on = !amp.on;
+  const t = audioCtx.currentTime;
+  amp.master.gain.cancelScheduledValues(t);
+  amp.master.gain.setTargetAtTime(amp.on ? 1 : 0, t, 0.05); // fondu pour éviter les clics
+  btn.textContent = amp.on ? '🔇 Éteindre l’ampli' : '🔊 Allumer l’ampli';
+  btn.classList.toggle('on', amp.on);
+  msg.textContent = amp.on ? '🎸 Ampli allumé — joue !' : 'Ampli éteint.';
+  msg.className = 'bigmsg' + (amp.on ? ' ok' : '');
+});
+// Sensibilité du micro (mémorisée)
+const sensSlider = document.getElementById('sensSlider');
+sensSlider.value = Math.max(0, Math.min(100, Math.round(100*Math.log10(0.03/RMS_THRESHOLD))));
+sensSlider.addEventListener('input', () => {
+  RMS_THRESHOLD = 0.03 * Math.pow(0.1, sensSlider.value/100);
+  localStorage.setItem('cg_thr', String(RMS_THRESHOLD));
+});
 
 /* ============================================================
    Manche de guitare virtuel (SVG)
