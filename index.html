@@ -256,6 +256,7 @@
     <div class="sliders" style="margin-top:4px">
       <label>Sensibilité (guitare électrique non branchée → à droite) <input type="range" id="sensSlider" min="0" max="100" value="40"></label>
     </div>
+    <p class="hint" id="micDiag" style="color:var(--accent)">Micro : inactif.</p>
     <p class="hint">Si l'app n'entend pas ta guitare (électrique non amplifiée, jeu doux), glisse vers la droite et rapproche le téléphone des cordes. Si elle détecte des notes fantômes à cause du bruit ambiant, glisse vers la gauche. La petite barre verte en haut à droite montre ce que le micro entend. Ton réglage est mémorisé.</p>
   </div>
 </section>
@@ -338,10 +339,13 @@ function autoCorrelate(buf, sampleRate){
 let candMidi = null, candCount = 0, currentMidi = null, silenceCount = 0;
 const STABLE_FRAMES = 3, SILENCE_FRAMES = 14;
 
+let diagTick = 0;
 function processFrame(){
+  if (!analyser){ requestAnimationFrame(processFrame); return; } // micro en cours de redémarrage
   analyser.getFloatTimeDomainData(timeBuf);
   const {freq, rms} = autoCorrelate(timeBuf, audioCtx.sampleRate);
   document.getElementById('micLevelBar').style.width = Math.min(100, rms*600) + '%';
+  if (++diagTick % 30 === 0) updateDiag(rms);
 
   if (freq > 0 && freq >= 70 && freq <= 1500){
     silenceCount = 0;
@@ -367,11 +371,14 @@ function processFrame(){
 }
 function emit(ev){ listeners.forEach(fn => { try{ fn(ev); }catch(e){ console.error(e); } }); }
 
+let micStream = null, loopRunning = false;
+
 async function startMic(){
   try{
     const stream = await navigator.mediaDevices.getUserMedia({
       audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false }
     });
+    micStream = stream;
     audioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive'});
     await audioCtx.resume(); // iOS Safari démarre parfois le contexte en état suspendu
     const src = audioCtx.createMediaStreamSource(stream);
@@ -379,26 +386,70 @@ async function startMic(){
     analyser.fftSize = 2048;
     src.connect(analyser);
     timeBuf = new Float32Array(analyser.fftSize);
+    const ampWasOn = amp && amp.on;
     amp = buildAmp(audioCtx, src); // ampli virtuel (éteint par défaut)
     ampApply();
+    if (ampWasOn){ amp.on = true; amp.master.gain.value = 1; }
+    // iOS peut couper (« mute ») le flux micro sans prévenir, surtout en web-app
+    // installée sur l'écran d'accueil : on surveille l'état de la piste.
+    const track = stream.getAudioTracks()[0];
+    track.addEventListener('mute', updateMicUI);
+    track.addEventListener('unmute', updateMicUI);
+    track.addEventListener('ended', () => { if (micOn) restartMic(); });
     micOn = true;
-    document.getElementById('micBtn').textContent = '🎤 Micro actif';
-    document.getElementById('micBtn').classList.add('on');
+    updateMicUI();
     document.getElementById('overlay').classList.add('hidden');
-    requestAnimationFrame(processFrame);
+    if (!loopRunning){ loopRunning = true; requestAnimationFrame(processFrame); }
   }catch(err){
+    document.getElementById('overlay').classList.remove('hidden');
     document.getElementById('overlayErr').textContent =
-      "Impossible d'accéder au micro : " + err.message + " — vérifie l'autorisation micro du navigateur.";
+      "Impossible d'accéder au micro : " + err.message + " — vérifie l'autorisation micro (Réglages iOS → Safari → Micro, ou l'icône AA dans la barre d'adresse).";
   }
+}
+function micTrack(){ return micStream ? micStream.getAudioTracks()[0] : null; }
+function micHealthy(){
+  const t = micTrack();
+  return micOn && t && t.readyState === 'live' && !t.muted && audioCtx && audioCtx.state === 'running';
+}
+async function restartMic(){
+  try{ if (micStream) micStream.getTracks().forEach(t => t.stop()); }catch(e){}
+  try{ if (audioCtx) await audioCtx.close(); }catch(e){}
+  audioCtx = null; analyser = null; micOn = false;
+  await startMic();
+}
+function updateMicUI(){
+  const btn = document.getElementById('micBtn');
+  if (!micOn){ btn.textContent = '🎤 Micro coupé'; btn.classList.remove('on'); return; }
+  if (micHealthy()){ btn.textContent = '🎤 Micro actif'; btn.classList.add('on'); }
+  else { btn.textContent = '⚠️ Réactiver le micro'; btn.classList.remove('on'); }
+}
+function updateDiag(rms){
+  const el = document.getElementById('micDiag'); if (!el) return;
+  const t = micTrack();
+  if (!micOn || !t){ el.textContent = 'Micro : inactif.'; return; }
+  if (t.muted || t.readyState !== 'live'){
+    el.textContent = '⚠️ iOS a coupé le micro — appuie sur « Réactiver le micro » en haut.';
+    return;
+  }
+  const niveau = Math.min(100, Math.round(rms*600));
+  const seuil = Math.min(100, Math.round(RMS_THRESHOLD*600));
+  el.textContent = `Micro : actif (${audioCtx.sampleRate} Hz) — niveau ${niveau} % / seuil ${seuil} %` +
+    (rms >= RMS_THRESHOLD ? ' ✓ son détecté' : ' — sous le seuil, joue plus fort ou monte la sensibilité');
 }
 document.getElementById('overlayBtn').addEventListener('click', startMic);
 document.getElementById('micBtn').addEventListener('click', () => {
   if (!micOn) startMic();
-  else if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  else restartMic(); // réactivation manuelle si iOS a coupé le flux
 });
-// iOS coupe le micro quand on quitte Safari : on relance au retour
+// iOS coupe souvent le micro quand on quitte l'app : au retour, on vérifie
+// l'état réel de la piste et on redémarre complètement la capture si besoin.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && micOn && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  if (document.hidden || !micOn) return;
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  setTimeout(() => { if (micOn && !document.hidden && !micHealthy()) restartMic(); }, 700);
+});
+window.addEventListener('pageshow', () => {
+  if (micOn && !micHealthy()) restartMic();
 });
 
 // Hook de test (simulation d'une note sans micro)
