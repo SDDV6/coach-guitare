@@ -3,7 +3,7 @@
   "short_name": "Coach Guitare",
   "start_url": ".",
   "scope": ".",
-  "display": "standalone",
+  "display": "browser",
   "orientation": "portrait",
   "background_color": "#12141a",
   "theme_color": "#12141a",

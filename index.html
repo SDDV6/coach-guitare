@@ -4,9 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#12141a">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- Mode plein écran volontairement désactivé : le micro est bien plus fiable
+     dans un onglet Safari que dans une web-app « installée » sur iOS. -->
 <meta name="apple-mobile-web-app-title" content="Coach Guitare">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -348,13 +347,22 @@ function autoCorrelate(buf, sampleRate){
 let candMidi = null, candCount = 0, currentMidi = null, silenceCount = 0;
 const STABLE_FRAMES = 3, SILENCE_FRAMES = 14;
 
-let diagTick = 0;
-function processFrame(){
-  if (!analyser){ requestAnimationFrame(processFrame); return; } // micro en cours de redémarrage
+let diagTick = 0, zeroFrames = 0, rateFixTried = false, lastFrameTime = 0;
+function processFrame(fromTimer){
+  lastFrameTime = Date.now();
+  if (!analyser){ if (!fromTimer) requestAnimationFrame(processFrame); return; } // micro en cours de redémarrage
   analyser.getFloatTimeDomainData(timeBuf);
   const {freq, rms} = autoCorrelate(timeBuf, audioCtx.sampleRate);
   document.getElementById('micLevelBar').style.width = Math.min(100, rms*600) + '%';
   if (++diagTick % 30 === 0) updateDiag(rms);
+  // Garde-fou : piste micro « vivante » mais échantillons strictement nuls pendant ~3 s
+  // = bug Safari de fréquence d'échantillonnage → on force l'autre fréquence standard.
+  if (rms === 0 && micHealthy()) zeroFrames++; else zeroFrames = 0;
+  if (zeroFrames === 180 && !rateFixTried){
+    rateFixTried = true;
+    forceRate = (audioCtx.sampleRate === 48000) ? 44100 : 48000;
+    restartMic();
+  }
 
   if (freq > 0 && freq >= 70 && freq <= 1500){
     silenceCount = 0;
@@ -376,13 +384,33 @@ function processFrame(){
       emit({type:'silence'});
     }
   }
-  requestAnimationFrame(processFrame);
+  if (!fromTimer) requestAnimationFrame(processFrame);
 }
 function emit(ev){ listeners.forEach(fn => { try{ fn(ev); }catch(e){ console.error(e); } }); }
 
 let micStream = null, loopRunning = false;
 let sessionInputOverride = null; // entrée externe choisie automatiquement pour la session
 let autoSwitched = false;        // évite de re-basculer en boucle
+let forceRate = 0;               // fréquence imposée par le garde-fou anti-silence
+
+// L'AudioContext est créé UNE fois (dans le geste utilisateur) puis réutilisé :
+// le recréer hors d'un toucher d'écran est interdit sur iOS et fige tout l'audio.
+async function ensureContext(desiredRate){
+  if (audioCtx && audioCtx.state !== 'closed'){
+    if (!desiredRate || audioCtx.sampleRate === desiredRate) return audioCtx;
+    try{ await audioCtx.close(); }catch(e){}
+    audioCtx = null;
+  }
+  const opts = {latencyHint:'interactive'};
+  if (desiredRate) opts.sampleRate = desiredRate;
+  try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(opts); }
+  catch(e){ audioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive'}); }
+  return audioCtx;
+}
+// Tout toucher d'écran relance un contexte suspendu (déblocage audio iOS)
+['touchend','click'].forEach(evName => document.addEventListener(evName, () => {
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}, {passive:true}));
 
 async function startMic(){
   const pref = localStorage.getItem('cg_input') || 'auto';
@@ -392,27 +420,38 @@ async function startMic(){
     if (devId) constraints.deviceId = { exact: devId };
     const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
     micStream = stream;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive'});
-    await audioCtx.resume(); // iOS Safari démarre parfois le contexte en état suspendu
+    const track = stream.getAudioTracks()[0];
+    // Bug Safari connu : si la fréquence du flux micro diffère de celle du
+    // contexte, la source reste muette. On aligne le contexte sur le flux.
+    const trackRate = forceRate || ((track.getSettings && track.getSettings().sampleRate) || 0);
+    await ensureContext(trackRate || undefined);
+    audioCtx.resume().catch(()=>{}); // jamais bloquant : hors geste, iOS peut refuser — un toucher le relancera
     const src = audioCtx.createMediaStreamSource(stream);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
     src.connect(analyser);
     timeBuf = new Float32Array(analyser.fftSize);
     const ampWasOn = amp && amp.on;
+    if (amp){ try{ amp.master.disconnect(); }catch(e){} } // débranche l'ancienne chaîne
     amp = buildAmp(audioCtx, src); // ampli virtuel (éteint par défaut)
     ampApply();
     if (ampWasOn){ amp.on = true; amp.master.gain.value = 1; }
-    // iOS peut couper (« mute ») le flux micro sans prévenir, surtout en web-app
-    // installée sur l'écran d'accueil : on surveille l'état de la piste.
-    const track = stream.getAudioTracks()[0];
+    // iOS peut couper (« mute ») le flux micro sans prévenir : on surveille la piste.
     track.addEventListener('mute', updateMicUI);
     track.addEventListener('unmute', updateMicUI);
     track.addEventListener('ended', () => { if (micOn) restartMic(); });
     micOn = true;
     updateMicUI();
     document.getElementById('overlay').classList.add('hidden');
-    if (!loopRunning){ loopRunning = true; requestAnimationFrame(processFrame); }
+    if (!loopRunning){
+      loopRunning = true;
+      requestAnimationFrame(processFrame);
+      // Secours : si requestAnimationFrame est gelé (onglet en arrière-plan,
+      // économie d'énergie iOS…), un minuteur maintient l'analyse à ~30 img/s.
+      setInterval(() => {
+        if (Date.now() - lastFrameTime > 100) processFrame(true);
+      }, 33);
+    }
     // Mode automatique : si une entrée externe existe (guitare branchée via
     // adaptateur), on bascule dessus plutôt que le micro intégré de l'iPhone.
     if (pref === 'auto' && !autoSwitched){
@@ -476,8 +515,7 @@ function micHealthy(){
 }
 async function restartMic(){
   try{ if (micStream) micStream.getTracks().forEach(t => t.stop()); }catch(e){}
-  try{ if (audioCtx) await audioCtx.close(); }catch(e){}
-  audioCtx = null; analyser = null; micOn = false;
+  analyser = null; micOn = false; // on GARDE l'AudioContext (voir ensureContext)
   await startMic();
 }
 function updateMicUI(){
@@ -494,9 +532,13 @@ function updateDiag(rms){
     el.textContent = '⚠️ iOS a coupé le micro — appuie sur « Réactiver le micro » en haut.';
     return;
   }
+  if (audioCtx && audioCtx.state !== 'running'){
+    el.textContent = '⚠️ Audio en pause (' + audioCtx.state + ') — touche l\'écran pour le relancer.';
+    return;
+  }
   const niveau = Math.min(100, Math.round(rms*600));
   const seuil = Math.min(100, Math.round(RMS_THRESHOLD*600));
-  el.textContent = `Entrée : ${t.label || 'micro'} — niveau ${niveau} % / seuil ${seuil} %` +
+  el.textContent = `Entrée : ${t.label || 'micro'} @ ${audioCtx.sampleRate} Hz — niveau ${niveau} % / seuil ${seuil} %` +
     (rms >= RMS_THRESHOLD ? ' ✓ son détecté' : ' — sous le seuil, joue plus fort ou monte la sensibilité');
 }
 document.getElementById('overlayBtn').addEventListener('click', startMic);
