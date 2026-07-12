@@ -233,7 +233,7 @@
 <section id="tab-amp">
   <div class="card">
     <h2>Ampli virtuel intégré</h2>
-    <p class="hint" style="margin-top:0">⚠️ <b>Branche des écouteurs filaires ou un casque AVANT d'allumer l'ampli.</b> Avec le haut-parleur du téléphone, le micro s'entendrait lui-même et ça sifflerait très fort (effet larsen). L'ampli fonctionne en même temps que la détection : tu peux le laisser allumé et utiliser tous les autres onglets.</p>
+    <p class="hint" style="margin-top:0">⚠️ Si le son vient du <b>micro du téléphone</b>, branche des écouteurs avant d'allumer l'ampli (sinon le micro s'entend lui-même et ça siffle). Si ta <b>guitare est branchée en direct</b> à l'iPhone (voir « Entrée audio » plus bas), aucun risque : haut-parleur ou écouteurs, comme tu veux. L'ampli fonctionne en même temps que la détection : tu peux le laisser allumé et utiliser tous les autres onglets.</p>
     <div class="row" style="margin-top:14px">
       <button class="btn primary" id="ampToggle">🔊 Allumer l'ampli</button>
     </div>
@@ -250,6 +250,15 @@
     </div>
     <div class="bigmsg" id="ampMsg"></div>
     <p class="hint">Le son de l'ampli sort de tes écouteurs pendant que le micro écoute ta guitare « sèche ». La détection de notes analyse toujours le son propre de ta guitare, jamais le son saturé — la reconnaissance reste donc précise même en Métal.</p>
+  </div>
+  <div class="card">
+    <h2>Entrée audio — guitare branchée à l'iPhone</h2>
+    <div class="row">
+      <label style="flex:1">Source du son
+        <select id="inputSelect" style="width:100%; margin-top:5px"><option value="auto">Automatique</option></select>
+      </label>
+    </div>
+    <p class="hint">Si ta guitare est branchée à l'iPhone par un adaptateur (jack → USB), elle doit apparaître dans cette liste : choisis-la, ou laisse « Automatique » — l'app bascule d'elle-même sur l'entrée branchée dès qu'elle en voit une. Le son est alors pris directement de ta guitare : détection précise, insensible au bruit ambiant, et tu peux utiliser le haut-parleur pour l'ampli sans sifflement. <b>Si seule l'entrée « micro iPhone » apparaît alors que ta guitare est branchée, c'est que ton adaptateur ne transmet pas le son vers le téléphone</b> (beaucoup d'adaptateurs jack→USB sont prévus pour des écouteurs, en sortie seulement) — dis-le moi, on regardera ça ensemble.</p>
   </div>
   <div class="card">
     <h2>Sensibilité du micro</h2>
@@ -372,12 +381,16 @@ function processFrame(){
 function emit(ev){ listeners.forEach(fn => { try{ fn(ev); }catch(e){ console.error(e); } }); }
 
 let micStream = null, loopRunning = false;
+let sessionInputOverride = null; // entrée externe choisie automatiquement pour la session
+let autoSwitched = false;        // évite de re-basculer en boucle
 
 async function startMic(){
+  const pref = localStorage.getItem('cg_input') || 'auto';
+  const devId = pref !== 'auto' ? pref : sessionInputOverride;
   try{
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false }
-    });
+    const constraints = { echoCancellation:false, noiseSuppression:false, autoGainControl:false };
+    if (devId) constraints.deviceId = { exact: devId };
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
     micStream = stream;
     audioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive'});
     await audioCtx.resume(); // iOS Safari démarre parfois le contexte en état suspendu
@@ -400,11 +413,61 @@ async function startMic(){
     updateMicUI();
     document.getElementById('overlay').classList.add('hidden');
     if (!loopRunning){ loopRunning = true; requestAnimationFrame(processFrame); }
+    // Mode automatique : si une entrée externe existe (guitare branchée via
+    // adaptateur), on bascule dessus plutôt que le micro intégré de l'iPhone.
+    if (pref === 'auto' && !autoSwitched){
+      const ext = await findExternalInput();
+      const cur = (track.getSettings && track.getSettings().deviceId) || '';
+      if (ext && ext.deviceId && ext.deviceId !== cur){
+        autoSwitched = true;
+        sessionInputOverride = ext.deviceId;
+        restartMic();
+        return;
+      }
+    }
+    refreshInputs();
   }catch(err){
+    if (devId){ // l'entrée choisie n'est plus disponible → repli sur l'automatique
+      sessionInputOverride = null;
+      localStorage.setItem('cg_input', 'auto');
+      return startMic();
+    }
     document.getElementById('overlay').classList.remove('hidden');
     document.getElementById('overlayErr').textContent =
       "Impossible d'accéder au micro : " + err.message + " — vérifie l'autorisation micro (Réglages iOS → Safari → Micro, ou l'icône AA dans la barre d'adresse).";
   }
+}
+/* --- Choix de l'entrée audio (guitare branchée via adaptateur) --- */
+async function findExternalInput(){
+  try{
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    return devs.find(d => d.kind === 'audioinput' && d.label && !/built-?in|int[ée]gr|iphone|ipad|interne/i.test(d.label)) || null;
+  }catch(e){ return null; }
+}
+async function refreshInputs(){
+  const sel = document.getElementById('inputSelect');
+  try{
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devs.filter(d => d.kind === 'audioinput');
+    const saved = localStorage.getItem('cg_input') || 'auto';
+    sel.innerHTML = '';
+    sel.add(new Option('Automatique (entrée branchée en priorité)', 'auto'));
+    inputs.forEach((d,i) => sel.add(new Option(d.label || ('Entrée audio ' + (i+1)), d.deviceId)));
+    sel.value = Array.from(sel.options).some(o => o.value === saved) ? saved : 'auto';
+  }catch(e){ /* enumerateDevices indisponible */ }
+}
+document.getElementById('inputSelect').addEventListener('change', () => {
+  localStorage.setItem('cg_input', document.getElementById('inputSelect').value);
+  sessionInputOverride = null; autoSwitched = false;
+  if (micOn) restartMic();
+});
+// Quand on branche/débranche l'adaptateur, on rescanne et on rebascule
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener){
+  navigator.mediaDevices.addEventListener('devicechange', () => {
+    autoSwitched = false; sessionInputOverride = null;
+    refreshInputs();
+    if (micOn) restartMic();
+  });
 }
 function micTrack(){ return micStream ? micStream.getAudioTracks()[0] : null; }
 function micHealthy(){
@@ -433,7 +496,7 @@ function updateDiag(rms){
   }
   const niveau = Math.min(100, Math.round(rms*600));
   const seuil = Math.min(100, Math.round(RMS_THRESHOLD*600));
-  el.textContent = `Micro : actif (${audioCtx.sampleRate} Hz) — niveau ${niveau} % / seuil ${seuil} %` +
+  el.textContent = `Entrée : ${t.label || 'micro'} — niveau ${niveau} % / seuil ${seuil} %` +
     (rms >= RMS_THRESHOLD ? ' ✓ son détecté' : ' — sous le seuil, joue plus fort ou monte la sensibilité');
 }
 document.getElementById('overlayBtn').addEventListener('click', startMic);
@@ -536,9 +599,9 @@ document.getElementById('ampToggle').addEventListener('click', () => {
 });
 // Sensibilité du micro (mémorisée)
 const sensSlider = document.getElementById('sensSlider');
-sensSlider.value = Math.max(0, Math.min(100, Math.round(100*Math.log10(0.03/RMS_THRESHOLD))));
+sensSlider.value = Math.max(0, Math.min(100, Math.round(100 * Math.log10(0.03/RMS_THRESHOLD) / Math.log10(20))));
 sensSlider.addEventListener('input', () => {
-  RMS_THRESHOLD = 0.03 * Math.pow(0.1, sensSlider.value/100);
+  RMS_THRESHOLD = 0.03 * Math.pow(0.05, sensSlider.value/100); // jusqu'à 0.0015 à fond, pour les signaux faibles
   localStorage.setItem('cg_thr', String(RMS_THRESHOLD));
 });
 
