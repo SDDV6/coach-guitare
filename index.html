@@ -310,6 +310,9 @@ const listeners = new Set();   // reçoit {type:'pitch'|'note'|'silence', midi, 
 // Seuil de volume en dessous duquel on considère qu'il y a silence (réglable, mémorisé)
 let RMS_THRESHOLD = parseFloat(localStorage.getItem('cg_thr') || '0.012');
 
+// Détection de hauteur par l'algorithme YIN (celui des accordeurs professionnels) :
+// bien plus réactif et fiable qu'une autocorrélation simple, notamment sur les
+// attaques de cordes, les notes faibles et les erreurs d'octave dues aux harmoniques.
 function autoCorrelate(buf, sampleRate){
   const SIZE = buf.length;
   let rms = 0;
@@ -317,35 +320,52 @@ function autoCorrelate(buf, sampleRate){
   rms = Math.sqrt(rms/SIZE);
   if (rms < RMS_THRESHOLD) return {freq:-1, rms};
 
-  // On rogne les bords faibles du signal pour stabiliser la corrélation
-  let r1 = 0, r2 = SIZE-1;
-  const thres = 0.2;
-  for (let i = 0; i < SIZE/2; i++) if (Math.abs(buf[i]) < thres){ r1 = i; break; }
-  for (let i = 1; i < SIZE/2; i++) if (Math.abs(buf[SIZE-i]) < thres){ r2 = SIZE-i; break; }
-  const b = buf.slice(r1, r2);
-  const N = b.length;
-  if (N < 128) return {freq:-1, rms};
-
-  const c = new Float32Array(N);
-  for (let i = 0; i < N; i++){
+  const tauMin = Math.max(2, Math.floor(sampleRate/1500)); // 1500 Hz max
+  const tauMax = Math.min(Math.floor(sampleRate/70), SIZE >> 1); // 70 Hz min
+  const W = SIZE - tauMax;
+  // Fonction de différence
+  const d = new Float32Array(tauMax+1);
+  for (let tau = 1; tau <= tauMax; tau++){
     let sum = 0;
-    for (let j = 0; j < N-i; j++) sum += b[j]*b[j+i];
-    c[i] = sum;
+    for (let i = 0; i < W; i++){
+      const diff = buf[i] - buf[i+tau];
+      sum += diff*diff;
+    }
+    d[tau] = sum;
   }
-  let d = 0; while (d < N-1 && c[d] > c[d+1]) d++;
-  let maxval = -1, maxpos = -1;
-  for (let i = d; i < N; i++) if (c[i] > maxval){ maxval = c[i]; maxpos = i; }
-  if (maxpos <= 0) return {freq:-1, rms};
-  let T0 = maxpos;
-  const x1 = c[T0-1] ?? c[T0], x2 = c[T0], x3 = c[T0+1] ?? c[T0];
-  const a = (x1 + x3 - 2*x2)/2, bb = (x3 - x1)/2;
-  if (a) T0 = T0 - bb/(2*a);
-  return {freq: sampleRate/T0, rms};
+  // Normalisation cumulative (CMNDF) : indépendante du volume du signal
+  const yin = new Float32Array(tauMax+1);
+  yin[0] = 1;
+  let cum = 0;
+  for (let tau = 1; tau <= tauMax; tau++){
+    cum += d[tau];
+    yin[tau] = cum > 0 ? d[tau]*tau/cum : 1;
+  }
+  // Première période nette sous le seuil, sinon le meilleur candidat acceptable
+  const THRESH = 0.15;
+  let tau = -1;
+  for (let t = tauMin; t <= tauMax; t++){
+    if (yin[t] < THRESH){
+      while (t+1 <= tauMax && yin[t+1] < yin[t]) t++;
+      tau = t; break;
+    }
+  }
+  if (tau < 0){
+    let best = 1, bt = -1;
+    for (let t = tauMin; t <= tauMax; t++) if (yin[t] < best){ best = yin[t]; bt = t; }
+    if (best < 0.3) tau = bt; else return {freq:-1, rms};
+  }
+  // Interpolation parabolique pour la précision (justesse au cent près)
+  const x1 = yin[tau-1] ?? yin[tau], x2 = yin[tau], x3 = yin[tau+1] ?? yin[tau];
+  const a = (x1 + x3 - 2*x2)/2, b = (x3 - x1)/2;
+  let T = tau;
+  if (a) T = tau - b/(2*a);
+  return {freq: sampleRate/T, rms};
 }
 
 // Suivi de note stable → événements discrets 'note'
 let candMidi = null, candCount = 0, currentMidi = null, silenceCount = 0;
-const STABLE_FRAMES = 3, SILENCE_FRAMES = 14;
+const STABLE_FRAMES = 2, SILENCE_FRAMES = 10; // réactivité : ~2 analyses suffisent pour valider une note
 
 let diagTick = 0, zeroFrames = 0, rateFixTried = false, lastFrameTime = 0;
 function processFrame(fromTimer){
@@ -597,6 +617,8 @@ function buildAmp(ctx, src){
   const dry = ctx.createGain(); const wet = ctx.createGain();
   const conv = ctx.createConvolver(); conv.buffer = makeIR(ctx);
   const master = ctx.createGain(); master.gain.value = 0; // éteint au départ
+  // Force un signal mono centré : même volume dans les deux oreilles
+  master.channelCount = 1; master.channelCountMode = 'explicit';
   src.connect(input); input.connect(hp); hp.connect(pre); pre.connect(shaper);
   shaper.connect(tone); tone.connect(body); body.connect(post);
   post.connect(dry); dry.connect(master);
