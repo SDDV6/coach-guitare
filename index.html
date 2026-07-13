@@ -237,40 +237,69 @@
 <!-- ================= THÉORIE ================= -->
 <section id="tab-theory">
   <div class="card">
-    <h2>La théorie, version guitariste d'oreille</h2>
-    <p class="hint" style="margin-top:0">Tu joues déjà à l'oreille : la théorie va juste mettre des mots sur ce que tes doigts savent. Lis les mini-leçons dans l'ordre, puis entraîne-toi avec les deux exercices en dessous — c'est le micro qui valide, comme toujours.</p>
+    <h2>Parcours théorie <small id="lessonProgress" style="float:right; color:var(--muted); font-weight:400"></small></h2>
+    <p class="hint" style="margin-top:0">Un parcours inspiré de la méthode <b>Berklee</b>, adapté au guitariste qui joue à l'oreille. Lis les leçons dans l'ordre, marque « J'ai compris », et pratique chaque notion avec l'exercice associé. 15 minutes par jour suffisent.</p>
+    <div id="lessonList">
     <details open>
-      <summary>1. Les notes et les demi-tons — la règle d'or du manche</summary>
-      <p>Il n'existe que <b>12 notes</b>, qui se répètent en boucle : Do, Do#, Ré, Ré#, Mi, Fa, Fa#, Sol, Sol#, La, La#, Si… puis on recommence. Sur la guitare, <b>chaque case = 1 demi-ton</b> (le pas entre deux notes voisines). Corde de La à vide = La → case 1 = La# → case 2 = Si → case 3 = Do… À la <b>case 12</b>, tu retombes sur la note de départ, une octave plus haut. Attention au piège : entre Mi et Fa, et entre Si et Do, il n'y a <b>pas</b> de dièse — un seul demi-ton les sépare.</p>
+      <summary>1. Les notes, les demi-tons et les positions</summary>
+      <p>Il n'existe que <b>12 notes</b>, qui se répètent en boucle : Do, Do#, Ré, Ré#, Mi, Fa, Fa#, Sol, Sol#, La, La#, Si… puis on recommence. Sur la guitare, <b>1 case = 1 demi-ton</b> et <b>2 cases = 1 ton</b>. À la <b>case 12</b>, tu retombes sur la note de départ, une octave plus haut. Piège : entre Mi et Fa, et entre Si et Do, il n'y a <b>pas</b> de dièse. Vocabulaire de pro : une « <b>position</b> », c'est la case où joue ton index — en 5e position, l'index joue la case 5 et les autres doigts les cases 6, 7 et 8. C'est comme ça que les guitaristes s'organisent sur le manche.</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button> <button class="btn ghost" onclick="goTab('free')">→ Voir les notes sur le manche</button></p>
     </details>
     <details>
       <summary>2. Les intervalles — le vocabulaire des mélodies</summary>
-      <p>Un intervalle, c'est la <b>distance entre deux notes, comptée en cases</b>. Les indispensables : <b>tierce mineure = 3 cases</b> (son triste), <b>tierce majeure = 4 cases</b> (son joyeux), <b>quarte = 5 cases</b>, <b>quinte = 7 cases</b> (le son puissant des power chords), <b>octave = 12 cases</b>. Quand tu trouves une mélodie à l'oreille, tu enchaînes des intervalles sans le savoir — l'exercice « Intervalles à l'oreille » va te les faire reconnaître et nommer.</p>
+      <p>Un intervalle, c'est la <b>distance entre deux notes, comptée en cases</b>. Les indispensables : <b>tierce mineure = 3 cases</b> (couleur triste), <b>tierce majeure = 4 cases</b> (couleur joyeuse), <b>quarte = 5 cases</b>, <b>quinte = 7 cases</b> (le son puissant des power chords), <b>octave = 12 cases</b>. Retiens surtout les tierces : les accords sont des <b>empilements de tierces</b> — maîtrise-les et les accords deviendront évidents.</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button> <span class="hint">→ Exercice « Intervalles à l'oreille » plus bas</span></p>
     </details>
     <details>
-      <summary>3. La gamme majeure — la mère de tout</summary>
-      <p>La gamme majeure, c'est 7 notes choisies parmi les 12, avec la recette <b>2-2-1-2-2-2-1</b> (en cases, depuis la note de départ). Exemple en Do : Do, Ré, Mi, Fa, Sol, La, Si. Tout le reste de la théorie (accords, tonalités, gammes mineures) découle de cette recette. Va dans l'onglet <b>Gammes</b> pour la voir sur le manche et la jouer.</p>
+      <summary>3. La gamme majeure — la formule 2-2-1-2-2-2-1</summary>
+      <p>La gamme majeure, c'est 7 notes choisies parmi les 12 avec la recette <b>ton, ton, demi-ton, ton, ton, ton, demi-ton</b> (2-2-1-2-2-2-1 en cases) : le fameux son « Do Ré Mi Fa Sol La Si ». La méthode Berklee pour la <i>voir</i> : joue-la d'abord <b>sur une seule corde</b> en comptant les cases — corde de Mi grave : cases 0, 2, 4, 5, 7, 9, 11, 12. Ensuite, apprends-la « en position » (compacte, sur plusieurs cordes) dans l'onglet Gammes : même son, moins de déplacements.</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button> <button class="btn ghost" onclick="goTab('scales')">→ Pratiquer dans Gammes</button></p>
     </details>
     <details>
-      <summary>4. Les accords — 3 notes suffisent</summary>
-      <p>Un accord de base (une « triade »), c'est <b>3 notes</b> : la fondamentale (la note qui donne son nom), la tierce (à 3 ou 4 cases : c'est elle qui décide <b>mineur ou majeur</b>, triste ou joyeux) et la quinte (à 7 cases, la stabilité). Quand tu grattes un accord de 6 cordes, tu joues ces 3 notes doublées à plusieurs octaves. L'onglet <b>Accords</b> te les montre et t'écoute les chercher.</p>
+      <summary>4. Chante ce que tu joues — l'audition intérieure</summary>
+      <p>Le cœur de l'ear training à Berklee : entendre la note <b>dans ta tête avant de la jouer</b> (« inner hearing »). Leur méthode : penser en <b>degrés</b> — dans une tonalité, chaque note se numérote de 1 à 7 par rapport à la note « maison » (le 1). Une mélodie n'est plus « des notes au hasard » mais « 1-1-5-5-6-6-5 » (Ah ! vous dirai-je maman) — et ça marche dans TOUTES les tonalités. Exercice quotidien de 2 min : joue une note, chante-la, puis chante la note suivante <b>avant</b> de la jouer, et vérifie. D'après Berklee, l'oreille « c'est 100 % apprenable ».</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button> <span class="hint">→ Exercice « Intervalles à l'oreille » plus bas</span></p>
     </details>
     <details>
-      <summary>5. La tonalité — pourquoi certains accords « vont ensemble »</summary>
-      <p>C'est LE secret pour jouer à l'oreille plus vite. Une chanson vit dans une <b>tonalité</b> : les 7 notes d'une gamme majeure donnent naissance à <b>7 accords qui sonnent bien ensemble</b>. En Sol majeur par exemple : Sol, La mineur, Si mineur, Do, Ré, Mi mineur (+ un rare 7e). La plupart des chansons n'utilisent que 3 ou 4 de ces accords ! Donc si tu as trouvé 2 accords d'une chanson à l'oreille, les suivants sont presque toujours dans cette petite famille.</p>
+      <summary>5. Les triades — accord et arpège</summary>
+      <p>Un accord = 3 notes ou plus jouées <b>ensemble</b> ; les mêmes notes jouées <b>l'une après l'autre</b> = un arpège. La triade se construit en empilant des tierces depuis la <b>fondamentale</b> : l'accord <b>majeur</b> = tierce majeure (4 cases) + tierce mineure par-dessus (3 cases) ; l'accord <b>mineur</b> = l'inverse. Résultat : fondamentale (1), tierce (3) et quinte (5) — on dit que « Mi est la tierce de Do majeur ». Quand tu grattes 6 cordes, tu joues ces 3 notes doublées à plusieurs octaves.</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button> <button class="btn ghost" onclick="goTab('chords')">→ Pratiquer dans Accords</button></p>
     </details>
     <details>
-      <summary>6. La pentatonique — l'arme des solos</summary>
-      <p>Retire 2 notes de la gamme pour n'en garder que 5 : voilà la <b>pentatonique</b>, la gamme de 90 % des solos rock et blues. Impossible de jouer « faux » dedans tant que tu restes dans la tonalité. Choisis « Pentatonique mineure » dans l'onglet <b>Gammes</b>, mets un preset saturé dans l'<b>Ampli</b>, et improvise dessus.</p>
+      <summary>6. Les accords de 7e — la 4e note qui change tout</summary>
+      <p>Ajoute une tierce de plus à ta triade et tu obtiens un accord de 7e : <b>1-3-5-7</b>. Quatre familles à connaître d'oreille : <b>maj7</b> (doux, jazzy, bossa), <b>m7</b> (mineur adouci, soul/funk), <b>7 « dominante »</b> (bluesy, instable : il <i>pousse</i> vers l'accord suivant — écoute ce « rappel » !), et le rare <b>m7♭5</b> (tendu). Ils sont tous dans le constructeur d'accords, à explorer une fois les triades acquises.</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button> <button class="btn ghost" onclick="goTab('chords')">→ Pratiquer dans Accords</button></p>
     </details>
     <details>
-      <summary>7. Ton plan d'entraînement (15 min/jour)</summary>
-      <p><b>5 min</b> — Trouve la note sur le manche (exercice ci-dessous) : c'est la fondation. <b>5 min</b> — Une gamme dans l'onglet Gammes, en changeant de fondamentale chaque jour. <b>5 min</b> — Intervalles à l'oreille ou construction d'accords. L'onglet Progression te montrera ta courbe. En 3-4 semaines, le manche n'aura plus de secret et tu comprendras <i>pourquoi</i> les chansons que tu joues d'oreille fonctionnent.</p>
+      <summary>7. La tonalité — la famille d'accords qui « vont ensemble »</summary>
+      <p>LE secret pour trouver les chansons à l'oreille 3× plus vite. Les 7 notes d'une gamme majeure engendrent <b>7 accords compatibles</b>, toujours dans le même ordre : <b>I majeur, ii mineur, iii mineur, IV majeur, V majeur, vi mineur</b> (+ un 7e rare). En Sol : Sol, Lam, Sim, Do, Ré, Mim. En version 7e : Imaj7, IIm7, IIIm7, IVmaj7, <b>V7</b>, VIm7, VIIm7♭5. Les chiffres romains = les degrés : une progression « I-V-vi-IV » se transpose dans n'importe quelle tonalité. La plupart des chansons n'utilisent que 3 ou 4 accords de la même famille — si tu en as trouvé 2, les suivants sont presque toujours dans la liste.</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button></p>
     </details>
+    <details>
+      <summary>8. Le blues 12 mesures — la grille de mille chansons</summary>
+      <p>La forme la plus jouée de la musique moderne : <b>12 mesures</b> avec seulement les degrés I, IV et V, souvent en accords 7 : <b>I7 ×4, IV7 ×2, I7 ×2, V7, IV7, I7, V7</b> — et on reboucle. Les deux dernières mesures (le « turnaround ») relancent la machine. Écoute le <b>« pull » du V7 vers le I7</b> : c'est le moteur du blues. Des chansons entières sont bâties dessus : Johnny B. Goode, Rock Around the Clock, Should I Stay or Should I Go, Black or White…</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button> <span class="hint">→ Exercice « Blues 12 mesures » plus bas</span></p>
+    </details>
+    <details>
+      <summary>9. Le rythme — pulsation, mesures et valeurs de notes</summary>
+      <p>Le rythme s'organise autour de la <b>pulsation</b> (le « clic » que tu tapes du pied). Les temps se groupent en <b>mesures</b> — 4 temps par mesure dans la quasi-totalité du rock et de la pop (le « 4/4 »). Les durées : la <b>ronde</b> = 4 temps, la <b>blanche</b> = 2, la <b>noire</b> = 1 (une note par clic), la <b>croche</b> = ½ (deux notes par clic). Chaque durée a son silence. Entraîne-toi avec le métronome plus bas : joue une note par temps, puis passe aux croches, en restant collé au clic.</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button> <span class="hint">→ Métronome plus bas</span></p>
+    </details>
+    <details>
+      <summary>10. La pentatonique — l'arme des solos</summary>
+      <p>Retire 2 notes de la gamme pour n'en garder que 5 : voilà la <b>pentatonique</b>, la gamme de 90 % des solos rock et blues. Impossible de jouer « faux » dedans tant que tu restes dans la tonalité. Choisis « Pentatonique mineure » dans l'onglet Gammes, mets un preset saturé dans l'Ampli, lance le métronome… et improvise sur un blues imaginaire.</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button> <button class="btn ghost" onclick="goTab('scales')">→ Pratiquer dans Gammes</button></p>
+    </details>
+    <details>
+      <summary>11. Ton plan d'entraînement (15 min/jour)</summary>
+      <p><b>5 min</b> — « Trouve la note sur le manche » : la fondation de tout. <b>5 min</b> — une gamme (change de fondamentale chaque jour) avec le métronome. <b>5 min</b> — au choix : intervalles à l'oreille, construction d'accords, ou la grille de blues. Et à chaque chanson que tu reprends d'oreille : demande-toi <i>quelle est la tonalité</i> et <i>quels degrés</i> tu joues (leçon 7). L'onglet Progression trace ta courbe. En 3-4 semaines, le manche n'aura plus de secrets.</p>
+      <p><button class="btn lessonDone">✔ J'ai compris</button></p>
+    </details>
+    </div>
   </div>
 
   <div class="card">
-    <h2>Exercice — Trouve la note sur le manche</h2>
+    <h2>Exercice — Trouve la note sur le manche <small id="bestQuiz" style="float:right; color:var(--muted); font-weight:400"></small></h2>
     <div class="row">
       <label>Cordes <select id="quizStrings">
         <option value="2">Mi grave + La (débutant)</option>
@@ -286,7 +315,7 @@
   </div>
 
   <div class="card">
-    <h2>Exercice — Les intervalles à l'oreille</h2>
+    <h2>Exercice — Les intervalles à l'oreille <small id="bestIv" style="float:right; color:var(--muted); font-weight:400"></small></h2>
     <div class="row">
       <button class="btn primary" id="ivStart">▶ Série de 10</button>
       <button class="btn" id="ivReplay">🔊 Réécouter la note</button>
@@ -295,6 +324,27 @@
     <div class="bigmsg" id="ivMsg"></div>
     <div class="score" id="ivScore"></div>
     <p class="hint">Le téléphone joue une note de départ, et je te demande de jouer la note située à un certain intervalle au-dessus (en nombre de cases). Réponds n'importe où sur le manche : c'est la note qui compte, pas la position. C'est l'exercice qui muscle le plus l'oreille d'un guitariste.</p>
+  </div>
+
+  <div class="card">
+    <h2>Exercice — Le blues 12 mesures <small id="bestBlues" style="float:right; color:var(--muted); font-weight:400"></small></h2>
+    <div class="row">
+      <label>Tonalité <select id="bluesKey"></select></label>
+      <button class="btn primary" id="bluesStart">▶ Jouer la grille</button>
+    </div>
+    <div id="bluesGrid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:14px;"></div>
+    <div class="bigmsg" id="bluesMsg"></div>
+    <p class="hint">Joue la <b>fondamentale</b> de chaque accord, mesure après mesure, où tu veux sur le manche. Tu apprends la structure I-IV-V en la jouant — quand la grille sera dans tes doigts, tu la reconnaîtras dans des dizaines de chansons. Étape suivante : la rejouer en rythme avec le métronome ci-dessous.</p>
+  </div>
+
+  <div class="card">
+    <h2>Métronome</h2>
+    <div class="row">
+      <label style="flex:1">Tempo : <span id="tempoVal">80</span> BPM <input type="range" id="tempo" min="40" max="200" value="80" style="margin-top:5px"></label>
+      <button class="btn primary" id="metroBtn">▶ Démarrer</button>
+      <span class="chip now" id="metroBeatEl" style="min-width:80px; text-align:center">Temps —</span>
+    </div>
+    <p class="hint">La noire = 1 note par clic, la croche = 2 notes par clic. Commence lent (60-80 BPM) : la propreté d'abord, la vitesse ensuite. Le clic est volontairement aigu pour ne pas perturber la détection de notes.</p>
   </div>
 </section>
 
@@ -973,6 +1023,7 @@ document.querySelectorAll('nav button').forEach(b => {
     activeTab = b.dataset.tab;
     document.getElementById('tab-'+activeTab).classList.add('active');
     if (activeTab === 'progress') renderProgress();
+    if (activeTab === 'theory') updateTheoryStats();
   });
 });
 
@@ -1402,12 +1453,138 @@ listeners.add(ev => {
   }
 });
 
+/* --- Parcours : suivi des leçons comprises --- */
+function goTab(name){ document.querySelector('nav button[data-tab="' + name + '"]').click(); }
+const lessonEls = document.querySelectorAll('#lessonList details');
+let lessonsDone = [];
+try{ lessonsDone = JSON.parse(localStorage.getItem('cg_lessons') || '[]'); }catch(e){}
+function lessonRefresh(){
+  let n = 0;
+  lessonEls.forEach((d, i) => {
+    const s = d.querySelector('summary'), btn = d.querySelector('.lessonDone');
+    if (lessonsDone[i]){
+      n++;
+      if (!s.textContent.startsWith('✓')) s.textContent = '✓ ' + s.textContent;
+      if (btn) btn.textContent = 'Compris ✓';
+    }
+  });
+  document.getElementById('lessonProgress').textContent = n + '/' + lessonEls.length + ' leçons comprises';
+}
+lessonEls.forEach((d, i) => {
+  const btn = d.querySelector('.lessonDone');
+  if (btn) btn.addEventListener('click', () => {
+    lessonsDone[i] = 1;
+    localStorage.setItem('cg_lessons', JSON.stringify(lessonsDone));
+    lessonRefresh();
+  });
+});
+function updateTheoryStats(){
+  const best = {};
+  getHistory().forEach(h => { if (h.module === 'Théorie') best[h.detail] = Math.max(best[h.detail] || 0, h.score); });
+  const map = {bestQuiz:'Notes du manche', bestIv:'Intervalles', bestBlues:'Blues 12 mesures'};
+  for (const id in map){
+    const el = document.getElementById(id);
+    if (el) el.textContent = best[map[id]] !== undefined ? 'record : ' + best[map[id]] + ' %' : '';
+  }
+}
+
+/* --- Exercice : blues 12 mesures (I7-IV7-V7, « long change ») --- */
+const BLUES_BARS = [
+  {d:0,r:'I7'},{d:0,r:'I7'},{d:0,r:'I7'},{d:0,r:'I7'},
+  {d:5,r:'IV7'},{d:5,r:'IV7'},{d:0,r:'I7'},{d:0,r:'I7'},
+  {d:7,r:'V7'},{d:5,r:'IV7'},{d:0,r:'I7'},{d:7,r:'V7'}
+];
+let bluesEx = null;
+const bluesKey = document.getElementById('bluesKey');
+NAMES_FR.forEach((n,i) => bluesKey.add(new Option(n + ' (' + NAMES_EN[i] + ')', i)));
+bluesKey.value = 9; // La, la tonalité blues des guitaristes
+function bluesRender(){
+  const root = parseInt(bluesKey.value);
+  const grid = document.getElementById('bluesGrid');
+  grid.innerHTML = '';
+  BLUES_BARS.forEach((b, i) => {
+    const c = document.createElement('div');
+    c.className = 'chip ' + (bluesEx ? (i < bluesEx.idx ? 'ok' : (i === bluesEx.idx ? 'now' : 'dim')) : '');
+    c.style.textAlign = 'center';
+    c.textContent = (i+1) + ' · ' + pcFR((root + b.d) % 12) + '7';
+    grid.appendChild(c);
+  });
+}
+bluesKey.addEventListener('change', () => { bluesEx = null; bluesRender(); });
+document.getElementById('bluesStart').addEventListener('click', () => {
+  bluesEx = {idx:0, errors:0};
+  bluesRender();
+  document.getElementById('bluesMsg').textContent = 'Mesure 1 : joue la fondamentale de l’accord allumé.';
+  document.getElementById('bluesMsg').className = 'bigmsg';
+});
+listeners.add(ev => {
+  if (activeTab !== 'theory' || !bluesEx || ev.type !== 'note' || Date.now() < toneGuard) return;
+  const root = parseInt(bluesKey.value);
+  const msg = document.getElementById('bluesMsg');
+  const want = (root + BLUES_BARS[bluesEx.idx].d) % 12;
+  if (ev.midi % 12 === want){
+    bluesEx.idx++;
+    if (bluesEx.idx >= 12){
+      const score = Math.round(100*12/(12 + bluesEx.errors));
+      msg.textContent = '🎉 Grille complète ! Score ' + score + ' % — tu viens de jouer la colonne vertébrale de milliers de chansons.';
+      msg.className = 'bigmsg ok';
+      saveResult('Théorie', 'Blues 12 mesures', score);
+      bluesEx = null; bluesRender(); updateTheoryStats();
+    } else {
+      msg.textContent = '✓ Mesure ' + bluesEx.idx + ' — suivante : ' + BLUES_BARS[bluesEx.idx].r;
+      msg.className = 'bigmsg ok';
+      bluesRender();
+    }
+  } else {
+    bluesEx.errors++;
+    msg.textContent = '✗ ' + pcFR(ev.midi%12) + ' — il faut ' + pcFR(want) + ' (' + BLUES_BARS[bluesEx.idx].r + ').';
+    msg.className = 'bigmsg err';
+  }
+});
+
+/* --- Métronome (clics aigus, hors de la plage de détection 70-1500 Hz) --- */
+let metroTimer = null, metroBeat = 0;
+function metroTick(){
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.frequency.value = metroBeat % 4 === 0 ? 2400 : 1900;
+  g.gain.setValueAtTime(metroBeat % 4 === 0 ? 0.3 : 0.17, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+  o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + 0.06);
+  document.getElementById('metroBeatEl').textContent = 'Temps ' + (metroBeat % 4 + 1);
+  metroBeat++;
+}
+document.getElementById('metroBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('metroBtn');
+  if (metroTimer){
+    clearInterval(metroTimer); metroTimer = null;
+    btn.textContent = '▶ Démarrer';
+    document.getElementById('metroBeatEl').textContent = 'Temps —';
+    return;
+  }
+  await ensureContext();
+  audioCtx.resume().catch(()=>{});
+  metroBeat = 0;
+  metroTick();
+  metroTimer = setInterval(metroTick, 60000/parseInt(document.getElementById('tempo').value));
+  btn.textContent = '⏹ Arrêter';
+});
+document.getElementById('tempo').addEventListener('input', () => {
+  const bpm = document.getElementById('tempo').value;
+  document.getElementById('tempoVal').textContent = bpm;
+  if (metroTimer){ clearInterval(metroTimer); metroTimer = setInterval(metroTick, 60000/parseInt(bpm)); }
+});
+
 /* ============================================================
    Initialisation
    ============================================================ */
 scShowScale();
 chRender();
 renderProgress();
+lessonRefresh();
+bluesRender();
+updateTheoryStats();
 </script>
 </body>
 </html>
