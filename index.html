@@ -11,49 +11,106 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-180.png">
 <title>Coach Guitare IA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+  /* ============ Design system ============ */
   :root{
-    --bg:#12141a; --panel:#1c1f2a; --panel2:#242836; --border:#323848;
-    --text:#e8eaf0; --muted:#9aa1b5; --accent:#f5a623; --accent2:#4da3ff;
-    --ok:#3ddc84; --err:#ff5d5d; --root:#f5a623; --third:#3ddc84; --fifth:#b48cff; --seventh:#ff7eb3;
+    --bg:#0e1013; --surface:#15181d; --surface2:#1d212a; --surface3:#262c38;
+    --border:#232831; --border2:#323947;
+    --text:#eceef2; --muted:#8d95a8; --faint:#5c6476;
+    --accent:#f6a92c; --accent-dim:rgba(246,169,44,.12);
+    --ok:#4ade80; --ok-dim:rgba(74,222,128,.1);
+    --err:#f87171; --err-dim:rgba(248,113,113,.1);
+    --blue:#5ba7f7; --purple:#a78bfa; --pink:#f472b6;
+    --panel:var(--surface); --panel2:var(--surface2);
+    --accent2:var(--blue); --root:var(--accent); --third:var(--ok); --fifth:var(--purple); --seventh:var(--pink);
+    --radius:14px;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
-  body{background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; min-height:100vh;}
-  header{display:flex; align-items:center; justify-content:space-between; padding:14px 22px; border-bottom:1px solid var(--border); flex-wrap:wrap; gap:10px;}
-  header h1{font-size:1.25rem; font-weight:600;}
+  html{-webkit-text-size-adjust:100%;}
+  body{background:var(--bg); color:var(--text); min-height:100vh;
+       font-family:'Inter',-apple-system,'Segoe UI',system-ui,sans-serif;
+       font-size:15.5px; line-height:1.55;}
+  ::selection{background:var(--accent-dim);}
+  button,select,input{font-family:inherit; touch-action:manipulation;}
+  select{font-size:16px;} /* évite le zoom automatique d'iOS */
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important; transition:none!important;} }
+
+  /* ============ Header & navigation ============ */
+  header{display:flex; align-items:center; justify-content:space-between; padding:16px 22px 12px; gap:10px; flex-wrap:wrap;}
+  header h1{font-size:1.12rem; font-weight:700; letter-spacing:-.02em;}
   header h1 span{color:var(--accent);}
-  #micBtn{background:var(--accent); color:#181818; border:none; border-radius:24px; padding:10px 20px; font-size:1rem; font-weight:600; cursor:pointer;}
-  #micBtn.on{background:var(--ok);}
-  #micBtn:disabled{opacity:.6; cursor:default;}
-  #micLevel{display:inline-block; width:70px; height:8px; background:var(--panel2); border-radius:4px; overflow:hidden; vertical-align:middle; margin-left:8px;}
+  #micBtn{background:var(--surface2); color:var(--text); border:1px solid var(--border2); border-radius:999px;
+          padding:8px 16px; font-size:.85rem; font-weight:600; cursor:pointer; transition:all .15s;}
+  #micBtn:hover{background:var(--surface3);}
+  #micBtn.on{color:var(--ok); border-color:rgba(74,222,128,.35); background:var(--ok-dim);}
+  #micLevel{display:inline-block; width:64px; height:6px; background:var(--surface2); border-radius:3px; overflow:hidden; vertical-align:middle; margin-left:8px;}
   #micLevelBar{height:100%; width:0%; background:var(--ok); transition:width .08s;}
-  nav{display:flex; gap:4px; padding:10px 18px 0; border-bottom:1px solid var(--border); flex-wrap:wrap;}
-  nav button{background:none; border:none; color:var(--muted); padding:10px 16px; font-size:.98rem; cursor:pointer; border-bottom:3px solid transparent;}
-  nav button.active{color:var(--text); border-bottom-color:var(--accent); font-weight:600;}
-  main{padding:20px; max-width:1080px; margin:0 auto;}
+  nav{position:sticky; top:0; z-index:20; display:flex; gap:2px; padding:8px 16px;
+      background:rgba(14,16,19,.86); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+      border-bottom:1px solid var(--border); overflow-x:auto; scrollbar-width:none;}
+  nav::-webkit-scrollbar{display:none;}
+  nav button{display:flex; align-items:center; gap:7px; background:none; border:none; color:var(--muted);
+             padding:8px 13px; font-size:.89rem; font-weight:500; cursor:pointer; border-radius:9px;
+             white-space:nowrap; transition:color .15s, background .15s;}
+  nav button:hover{color:var(--text);}
+  nav button.active{background:var(--surface2); color:var(--text); font-weight:600;}
+  nav button .ic{font-size:1rem; line-height:1;}
+
+  /* ============ Structure ============ */
+  main{padding:22px 20px 48px; max-width:1060px; margin:0 auto;}
   section{display:none;}
-  section.active{display:block;}
-  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:16px;}
-  .card h2{font-size:1.05rem; margin-bottom:12px; color:var(--accent);}
-  .hint{color:var(--muted); font-size:.9rem; line-height:1.5; margin-top:10px;}
+  section.active{display:block; animation:fadeUp .22s ease;}
+  @keyframes fadeUp{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:none;}}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+        padding:22px; margin-bottom:18px; box-shadow:0 1px 2px rgba(0,0,0,.25);}
+  .card h2{font-size:1.02rem; font-weight:600; letter-spacing:-.01em; margin-bottom:14px; color:var(--text);}
+  .card.exercise{border-left:3px solid var(--accent);}
+  .card.exercise::before{content:'EXERCICE'; display:inline-block; font-size:.6rem; font-weight:700;
+        letter-spacing:.14em; color:var(--accent); background:var(--accent-dim); padding:3px 9px;
+        border-radius:6px; margin-bottom:10px;}
+  .hint{color:var(--muted); font-size:.88rem; line-height:1.65; margin-top:12px; max-width:72ch;}
+  .hint b{color:var(--text); font-weight:600;}
   .row{display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
-  select,button.btn{background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:9px 14px; font-size:.95rem; cursor:pointer;}
-  button.btn.primary{background:var(--accent); color:#181818; border:none; font-weight:600;}
-  button.btn.ghost{background:none;}
-  /* --- Accordeur --- */
-  #tunNote{font-size:4.5rem; font-weight:700; text-align:center; min-height:5.5rem;}
-  #tunFreq{text-align:center; color:var(--muted); margin-bottom:14px;}
-  .gauge{position:relative; height:56px; background:var(--panel2); border-radius:10px; overflow:hidden; margin:0 auto; max-width:560px;}
-  .gauge .mid{position:absolute; left:50%; top:0; bottom:0; width:2px; background:var(--muted);}
-  #tunNeedle{position:absolute; top:6px; bottom:6px; width:10px; border-radius:5px; background:var(--err); left:calc(50% - 5px); transition:left .09s, background .09s;}
-  #tunCents{text-align:center; margin-top:10px; color:var(--muted);}
-  .strings{display:flex; gap:8px; justify-content:center; margin-top:16px; flex-wrap:wrap;}
-  .strings div{padding:8px 14px; border:1px solid var(--border); border-radius:8px; color:var(--muted);}
-  .strings div.near{border-color:var(--accent); color:var(--accent); font-weight:600;}
-  .strings div.tuned{border-color:var(--ok); color:var(--ok);}
-  /* --- Manche --- */
-  .fbwrap{overflow-x:auto;}
-  .fb-dot{opacity:0;}
+
+  /* ============ Contrôles ============ */
+  select{background:var(--surface2); color:var(--text); border:1px solid var(--border2); border-radius:10px;
+         padding:9px 14px; cursor:pointer; transition:border-color .15s;}
+  select:hover{border-color:var(--faint);}
+  button.btn{background:var(--surface2); color:var(--text); border:1px solid var(--border2); border-radius:10px;
+             padding:9px 16px; font-size:.92rem; font-weight:500; cursor:pointer;
+             transition:background .15s, transform .08s, border-color .15s;}
+  button.btn:hover{background:var(--surface3);}
+  button.btn:active{transform:scale(.97);}
+  button.btn.primary{background:var(--accent); border-color:transparent; color:#1a1204; font-weight:600;}
+  button.btn.primary:hover{filter:brightness(1.08); background:var(--accent);}
+  button.btn.ghost{background:transparent; border-color:transparent; color:var(--accent);}
+  button.btn.ghost:hover{background:var(--accent-dim);}
+  input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:26px; background:none;}
+  input[type=range]::-webkit-slider-runnable-track{height:4px; border-radius:2px; background:var(--surface3);}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+        background:var(--accent); margin-top:-6px; border:none; transition:transform .12s;}
+  input[type=range]::-webkit-slider-thumb:active{transform:scale(1.2);}
+  input[type=range]::-moz-range-track{height:4px; border-radius:2px; background:var(--surface3);}
+  input[type=range]::-moz-range-thumb{width:16px; height:16px; border-radius:50%; background:var(--accent); border:none;}
+
+  /* ============ Accordeur ============ */
+  #tunNote{font-size:4.6rem; font-weight:800; letter-spacing:-.03em; text-align:center; min-height:5.6rem; font-variant-numeric:tabular-nums;}
+  #tunFreq{text-align:center; color:var(--muted); font-size:.92rem; margin-bottom:16px;}
+  .gauge{position:relative; height:46px; background:var(--surface2); border-radius:12px; overflow:hidden; margin:0 auto; max-width:560px; border:1px solid var(--border);}
+  .gauge .mid{position:absolute; left:50%; top:0; bottom:0; width:2px; background:var(--faint);}
+  #tunNeedle{position:absolute; top:6px; bottom:6px; width:8px; border-radius:4px; background:var(--err); left:calc(50% - 4px); transition:left .09s, background .09s;}
+  #tunCents{text-align:center; margin-top:12px; color:var(--muted); font-size:.9rem;}
+  .strings{display:flex; gap:8px; justify-content:center; margin-top:18px; flex-wrap:wrap;}
+  .strings div{padding:8px 14px; border:1px solid var(--border2); border-radius:10px; color:var(--muted); font-size:.85rem; transition:all .15s;}
+  .strings div.near{border-color:var(--accent); color:var(--accent); background:var(--accent-dim); font-weight:600;}
+  .strings div.tuned{border-color:rgba(74,222,128,.4); color:var(--ok); background:var(--ok-dim); font-weight:600;}
+
+  /* ============ Manche ============ */
+  .fbwrap{overflow-x:auto; margin-top:6px;}
+  .fb-dot{opacity:0; transition:opacity .12s;}
   .fb-dot.lit circle{fill:var(--ok);}
   .fb-dot.root circle{fill:var(--root);}
   .fb-dot.third circle{fill:var(--third);}
@@ -62,62 +119,80 @@
   .fb-dot.scale circle{fill:var(--accent2);}
   .fb-dot.found circle{stroke:#fff; stroke-width:2.5;}
   .fb-dot.show{opacity:1;}
-  #freeNote{font-size:3.2rem; font-weight:700; text-align:center; min-height:4rem;}
-  #freeHist{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; min-height:34px;}
-  .chip{background:var(--panel2); border:1px solid var(--border); border-radius:16px; padding:5px 12px; font-size:.9rem;}
-  .chip.ok{border-color:var(--ok); color:var(--ok);}
-  .chip.err{border-color:var(--err); color:var(--err);}
-  .chip.now{border-color:var(--accent); color:var(--accent); font-weight:700;}
-  .chip.dim{opacity:.45;}
-  .legend{display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:.85rem; color:var(--muted);}
-  .legend i{display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:5px; vertical-align:-1px;}
-  /* --- feedback --- */
-  .bigmsg{text-align:center; font-size:1.15rem; min-height:1.6rem; margin-top:10px;}
-  .bigmsg.ok{color:var(--ok);} .bigmsg.err{color:var(--err);}
-  .score{font-size:1rem; color:var(--muted); text-align:center; margin-top:6px;}
-  /* --- progression --- */
-  .stats{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px;}
-  .stat{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 22px; text-align:center; flex:1; min-width:140px;}
-  .stat b{display:block; font-size:1.8rem; color:var(--accent);}
-  table{width:100%; border-collapse:collapse; font-size:.92rem;}
-  th,td{padding:8px 10px; text-align:left; border-bottom:1px solid var(--border);}
-  th{color:var(--muted); font-weight:600;}
-  #overlay{position:fixed; inset:0; background:rgba(10,12,16,.92); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; z-index:10; text-align:center; padding:20px;}
-  #overlay h2{font-size:1.5rem;}
-  #overlay p{color:var(--muted); max-width:460px; line-height:1.5;}
-  #overlay button{font-size:1.15rem; padding:14px 30px;}
-  #overlay.hidden{display:none;}
-  /* --- Ampli --- */
+  #freeNote{font-size:3.2rem; font-weight:800; letter-spacing:-.03em; text-align:center; min-height:4rem;}
+  #freeHist{display:flex; gap:6px; flex-wrap:wrap; margin-top:12px; min-height:34px;}
+  .chip{background:var(--surface2); border:1px solid var(--border2); border-radius:999px; padding:5px 13px; font-size:.85rem; font-weight:500; transition:all .15s;}
+  .chip.ok{border-color:transparent; color:var(--ok); background:var(--ok-dim);}
+  .chip.err{border-color:transparent; color:var(--err); background:var(--err-dim);}
+  .chip.now{border-color:var(--accent); color:var(--accent); background:var(--accent-dim); font-weight:700;}
+  .chip.dim{opacity:.38;}
+  .legend{display:flex; gap:14px; flex-wrap:wrap; margin-top:12px; font-size:.8rem; color:var(--muted);}
+  .legend i{display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:5px; vertical-align:-1px;}
+
+  /* ============ Feedback ============ */
+  .bigmsg{text-align:center; font-size:1.02rem; font-weight:500; min-height:1.7rem; margin-top:12px; border-radius:10px; padding:7px 12px; transition:background .2s;}
+  .bigmsg.ok{color:var(--ok); background:var(--ok-dim);}
+  .bigmsg.err{color:var(--err); background:var(--err-dim);}
+  .score{font-size:.9rem; color:var(--muted); text-align:center; margin-top:8px;}
+
+  /* ============ Progression ============ */
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin-bottom:18px;}
+  .stat{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px 14px; text-align:center; color:var(--muted); font-size:.8rem;}
+  .stat b{display:block; font-size:1.9rem; font-weight:700; letter-spacing:-.02em; color:var(--accent); font-variant-numeric:tabular-nums; margin-bottom:2px;}
+  table{width:100%; border-collapse:collapse; font-size:.9rem;}
+  th,td{padding:9px 10px; text-align:left; border-bottom:1px solid var(--border);}
+  th{color:var(--faint); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.08em;}
+  .pbar{height:8px; background:var(--surface3); border-radius:999px; overflow:hidden; margin:2px 0 16px;}
+  .pbar i{display:block; height:100%; width:0; background:linear-gradient(90deg,var(--accent),#fbc55e); border-radius:999px; transition:width .5s cubic-bezier(.22,1,.36,1);}
+
+  /* ============ Théorie (leçons) ============ */
+  #lessonList details{border:none; border-bottom:1px solid var(--border); border-radius:0; background:none; padding:2px 0 6px; margin:0;}
+  #lessonList details:last-child{border-bottom:none;}
+  summary{list-style:none; display:flex; align-items:center; gap:8px; cursor:pointer; padding:12px 6px; color:var(--text); font-weight:600; font-size:.94rem; border-radius:8px; transition:background .15s;}
+  summary::-webkit-details-marker{display:none;}
+  summary:hover{background:var(--surface2);}
+  summary::after{content:'›'; margin-left:auto; color:var(--faint); font-size:1.2rem; transition:transform .2s;}
+  details[open] summary::after{transform:rotate(90deg);}
+  details p{margin:6px 6px 12px; color:var(--muted); line-height:1.7; font-size:.9rem; max-width:72ch;}
+  details b{color:var(--text); font-weight:600;}
+  details i{color:var(--text);}
+
+  /* ============ Ampli ============ */
   .sliders{display:flex; flex-direction:column; gap:14px; margin-top:16px; max-width:440px;}
-  .sliders label{display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:.9rem;}
-  input[type=range]{width:100%; accent-color:var(--accent); height:28px;}
-  #ampToggle.on{background:var(--ok);}
-  .sliders.grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px 18px; max-width:none;}
-  /* --- Théorie --- */
-  details{border:1px solid var(--border); border-radius:10px; padding:10px 14px; margin-bottom:10px; background:var(--panel2);}
-  summary{cursor:pointer; color:var(--accent); font-weight:600; font-size:.97rem;}
-  details p{margin-top:10px; color:var(--muted); line-height:1.55; font-size:.92rem;}
-  details b{color:var(--text);}
-  button,select{touch-action:manipulation;}
-  select{font-size:16px;} /* évite le zoom automatique d'iOS sur les champs */
-  /* --- Adaptation téléphone --- */
+  .sliders label{display:flex; flex-direction:column; gap:4px; color:var(--muted); font-size:.82rem; font-weight:500;}
+  .sliders.grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px 20px; max-width:none;}
+  #ampToggle.on{background:var(--ok); color:#0b1a10;}
+
+  /* ============ Overlay ============ */
+  #overlay{position:fixed; inset:0; background:rgba(10,11,14,.92); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+           display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; z-index:50; text-align:center; padding:24px;}
+  #overlay h2{font-size:1.5rem; font-weight:700; letter-spacing:-.02em;}
+  #overlay p{color:var(--muted); max-width:440px; line-height:1.65; font-size:.95rem;}
+  #overlay button{font-size:1.1rem; padding:14px 32px; border-radius:12px;}
+  #overlay.hidden{display:none;}
+
+  /* ============ Mobile : barre d'onglets en bas ============ */
   @media (max-width:640px){
-    header{padding:10px 12px;}
-    header h1{font-size:1.05rem;}
-    #micBtn{padding:8px 14px; font-size:.9rem;}
-    #micLevel{width:44px;}
-    nav{padding:6px 6px 0; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;}
-    nav button{padding:10px 12px; font-size:.9rem; white-space:nowrap; flex-shrink:0;}
-    main{padding:12px 10px;}
-    .card{padding:14px 12px;}
-    #tunNote{font-size:3.2rem; min-height:4rem;}
+    header{padding:12px 14px 8px;}
+    header h1{font-size:1rem;}
+    #micBtn{padding:7px 13px; font-size:.8rem;}
+    #micLevel{width:40px;}
+    main{padding:14px 12px 100px;}
+    nav{position:fixed; bottom:0; top:auto; left:0; right:0; border-top:1px solid var(--border); border-bottom:none;
+        background:rgba(14,16,19,.94); justify-content:space-between; gap:0;
+        padding:6px 4px calc(8px + env(safe-area-inset-bottom));}
+    nav button{flex-direction:column; gap:3px; font-size:.6rem; font-weight:500; padding:5px 4px; flex:1 0 auto; min-width:48px; border-radius:10px;}
+    nav button .ic{font-size:1.25rem;}
+    nav button.active{background:none; color:var(--accent);}
+    .card{padding:16px 14px;}
+    #tunNote{font-size:3.4rem; min-height:4.2rem;}
     #freeNote{font-size:2.4rem; min-height:3rem;}
     .row{gap:8px;}
     .row label{display:flex; flex-direction:column; gap:4px; flex:1; min-width:120px;}
     .row select{width:100%;}
     button.btn{padding:11px 14px;}
-    .stat{padding:12px 14px; min-width:100px;}
-    .stat b{font-size:1.4rem;}
+    .stat{padding:14px 10px;}
+    .stat b{font-size:1.5rem;}
     svg{min-width:640px !important;}
   }
 </style>
@@ -141,13 +216,13 @@
 </header>
 
 <nav>
-  <button data-tab="tuner" class="active">Accordeur</button>
-  <button data-tab="free">Manche</button>
-  <button data-tab="scales">Gammes</button>
-  <button data-tab="chords">Accords</button>
-  <button data-tab="theory">Théorie</button>
-  <button data-tab="amp">Ampli</button>
-  <button data-tab="progress">Progression</button>
+  <button data-tab="tuner" class="active"><span class="ic">🎯</span><span>Accordeur</span></button>
+  <button data-tab="free"><span class="ic">🎸</span><span>Manche</span></button>
+  <button data-tab="scales"><span class="ic">🎼</span><span>Gammes</span></button>
+  <button data-tab="chords"><span class="ic">🎵</span><span>Accords</span></button>
+  <button data-tab="theory"><span class="ic">📚</span><span>Théorie</span></button>
+  <button data-tab="amp"><span class="ic">🎛️</span><span>Ampli</span></button>
+  <button data-tab="progress"><span class="ic">📈</span><span>Progrès</span></button>
 </nav>
 
 <main>
@@ -238,7 +313,8 @@
 <section id="tab-theory">
   <div class="card">
     <h2>Parcours théorie <small id="lessonProgress" style="float:right; color:var(--muted); font-weight:400"></small></h2>
-    <p class="hint" style="margin-top:0">Un parcours inspiré de la méthode <b>Berklee</b>, adapté au guitariste qui joue à l'oreille. Lis les leçons dans l'ordre, marque « J'ai compris », et pratique chaque notion avec l'exercice associé. 15 minutes par jour suffisent.</p>
+    <p class="hint" style="margin-top:0; margin-bottom:14px">Un parcours inspiré de la méthode <b>Berklee</b>, adapté au guitariste qui joue à l'oreille. Lis les leçons dans l'ordre, marque « J'ai compris », et pratique chaque notion avec l'exercice associé. 15 minutes par jour suffisent.</p>
+    <div class="pbar"><i id="lessonBar"></i></div>
     <div id="lessonList">
     <details open>
       <summary>1. Les notes, les demi-tons et les positions</summary>
@@ -298,8 +374,8 @@
     </div>
   </div>
 
-  <div class="card">
-    <h2>Exercice — Trouve la note sur le manche <small id="bestQuiz" style="float:right; color:var(--muted); font-weight:400"></small></h2>
+  <div class="card exercise">
+    <h2>Trouve la note sur le manche <small id="bestQuiz" style="float:right; color:var(--muted); font-weight:400"></small></h2>
     <div class="row">
       <label>Cordes <select id="quizStrings">
         <option value="2">Mi grave + La (débutant)</option>
@@ -314,8 +390,8 @@
     <p class="hint">Rappel : chaque case = 1 demi-ton, et les repères du manche sont aux cases 3, 5, 7, 9 et 12 (l'octave). Cherche, joue, et le micro valide. Si tu te trompes, je te dis de combien de cases tu es à côté.</p>
   </div>
 
-  <div class="card">
-    <h2>Exercice — Les intervalles à l'oreille <small id="bestIv" style="float:right; color:var(--muted); font-weight:400"></small></h2>
+  <div class="card exercise">
+    <h2>Les intervalles à l'oreille <small id="bestIv" style="float:right; color:var(--muted); font-weight:400"></small></h2>
     <div class="row">
       <button class="btn primary" id="ivStart">▶ Série de 10</button>
       <button class="btn" id="ivReplay">🔊 Réécouter la note</button>
@@ -326,8 +402,8 @@
     <p class="hint">Le téléphone joue une note de départ, et je te demande de jouer la note située à un certain intervalle au-dessus (en nombre de cases). Réponds n'importe où sur le manche : c'est la note qui compte, pas la position. C'est l'exercice qui muscle le plus l'oreille d'un guitariste.</p>
   </div>
 
-  <div class="card">
-    <h2>Exercice — Le blues 12 mesures <small id="bestBlues" style="float:right; color:var(--muted); font-weight:400"></small></h2>
+  <div class="card exercise">
+    <h2>Le blues 12 mesures <small id="bestBlues" style="float:right; color:var(--muted); font-weight:400"></small></h2>
     <div class="row">
       <label>Tonalité <select id="bluesKey"></select></label>
       <button class="btn primary" id="bluesStart">▶ Jouer la grille</button>
@@ -400,6 +476,7 @@
 <!-- ================= PROGRESSION ================= -->
 <section id="tab-progress">
   <div class="stats">
+    <div class="stat"><b id="stStreak">0</b>🔥 jours d'affilée</div>
     <div class="stat"><b id="stNotes">0</b>notes jouées au total</div>
     <div class="stat"><b id="stSessions">0</b>exercices terminés</div>
     <div class="stat"><b id="stAvg">—</b>score moyen</div>
@@ -1042,6 +1119,12 @@ function saveResult(module, detail, score){
 }
 function renderProgress(){
   const h = getHistory();
+  // Série de jours consécutifs avec au moins un exercice (à la Duolingo)
+  const days = new Set(h.map(x => new Date(x.d).toDateString()));
+  let t = Date.now(), streak = 0;
+  if (!days.has(new Date(t).toDateString())) t -= 86400000; // la série d'hier compte encore
+  while (days.has(new Date(t).toDateString())){ streak++; t -= 86400000; }
+  document.getElementById('stStreak').textContent = streak;
   document.getElementById('stNotes').textContent = totalNotes;
   document.getElementById('stSessions').textContent = h.length;
   document.getElementById('stAvg').textContent = h.length
@@ -1469,6 +1552,7 @@ function lessonRefresh(){
     }
   });
   document.getElementById('lessonProgress').textContent = n + '/' + lessonEls.length + ' leçons comprises';
+  document.getElementById('lessonBar').style.width = Math.round(100*n/lessonEls.length) + '%';
 }
 lessonEls.forEach((d, i) => {
   const btn = d.querySelector('.lessonDone');
