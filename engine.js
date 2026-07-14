@@ -28,7 +28,8 @@ function autoCorrelate(buf, sampleRate){
   if (rms < RMS_THRESHOLD) return {freq:-1, rms};
   const tauMin = Math.max(2, Math.floor(sampleRate/1500));
   const tauMax = Math.min(Math.floor(sampleRate/70), SIZE >> 1);
-  const W = SIZE - tauMax;
+  // Fenêtre d'intégration fixe (YIN standard) : plus rapide et comparable entre tau
+  const W = Math.min(SIZE - tauMax, SIZE >> 1);
   const d = new Float32Array(tauMax+1);
   for (let tau = 1; tau <= tauMax; tau++){
     let sum = 0;
@@ -53,23 +54,25 @@ function autoCorrelate(buf, sampleRate){
   const a = (x1 + x3 - 2*x2)/2, b = (x3 - x1)/2;
   let T = tau;
   if (a) T = tau - b/(2*a);
-  return {freq: sampleRate/T, rms};
+  // clarity ∈ [0,1] : proche de 1 = détection très fiable
+  return {freq: sampleRate/T, rms, clarity: 1 - x2};
 }
 
 let candMidi = null, candCount = 0, currentMidi = null, silenceCount = 0;
-const STABLE_FRAMES = 2, SILENCE_FRAMES = 10;
-let diagTick = 0, zeroFrames = 0, rateFixTried = false, lastFrameTime = 0;
+// Analyse à ~90 Hz (toutes les 11 ms) au lieu du rythme d'affichage (60 Hz) :
+// la note est confirmée en 11–22 ms au lieu de ~33 ms.
+const ANALYSIS_MS = 11, SILENCE_FRAMES = 14;
+let diagTick = 0, zeroFrames = 0, rateFixTried = false;
 
-function processFrame(fromTimer){
-  lastFrameTime = Date.now();
-  if (!analyser){ if (!fromTimer) requestAnimationFrame(processFrame); return; }
+function processFrame(){
+  if (!analyser) return;
   analyser.getFloatTimeDomainData(timeBuf);
-  const {freq, rms} = autoCorrelate(timeBuf, audioCtx.sampleRate);
+  const {freq, rms, clarity} = autoCorrelate(timeBuf, audioCtx.sampleRate);
   document.getElementById('micLevelBar').style.width = Math.min(100, rms*600) + '%';
-  if (++diagTick % 30 === 0) updateDiag(rms);
+  if (++diagTick % 45 === 0) updateDiag(rms);
   // Garde-fou anti-silence (bug Safari de fréquence d'échantillonnage)
   if (rms === 0 && micHealthy()) zeroFrames++; else zeroFrames = 0;
-  if (zeroFrames === 180 && !rateFixTried){
+  if (zeroFrames === 270 && !rateFixTried){
     rateFixTried = true;
     forceRate = (audioCtx.sampleRate === 48000) ? 44100 : 48000;
     restartMic();
@@ -82,7 +85,9 @@ function processFrame(fromTimer){
     emit({type:'pitch', freq, midi, cents});
     if (midi === candMidi) candCount++;
     else { candMidi = midi; candCount = 1; }
-    if (candCount >= STABLE_FRAMES && midi !== currentMidi){
+    // Détection très nette → on valide dès la 1re trame ; sinon 2 trames
+    const needed = (clarity >= 0.9) ? 1 : 2;
+    if (candCount >= needed && midi !== currentMidi){
       currentMidi = midi;
       emit({type:'note', midi, cents});
     }
@@ -93,7 +98,6 @@ function processFrame(fromTimer){
       emit({type:'silence'});
     }
   }
-  if (!fromTimer) requestAnimationFrame(processFrame);
 }
 function emit(ev){ listeners.forEach(fn => { try{ fn(ev); }catch(e){ console.error(e); } }); }
 
@@ -121,7 +125,7 @@ async function startMic(){
   const pref = localStorage.getItem('cg_input') || 'auto';
   const devId = pref !== 'auto' ? pref : sessionInputOverride;
   try{
-    const constraints = { echoCancellation:false, noiseSuppression:false, autoGainControl:false };
+    const constraints = { echoCancellation:false, noiseSuppression:false, autoGainControl:false, latency:0 };
     if (devId) constraints.deviceId = { exact: devId };
     const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
     micStream = stream;
@@ -147,8 +151,8 @@ async function startMic(){
     document.getElementById('overlay').classList.add('hidden');
     if (!loopRunning){
       loopRunning = true;
-      requestAnimationFrame(processFrame);
-      setInterval(() => { if (Date.now() - lastFrameTime > 100) processFrame(true); }, 33);
+      // Cadence fixe et rapide, indépendante du rafraîchissement de l'écran
+      setInterval(processFrame, ANALYSIS_MS);
     }
     if (pref === 'auto' && !autoSwitched){
       const ext = await findExternalInput();
@@ -509,32 +513,32 @@ function Fretboard(container, nfrets = NFRETS){
   const bg = document.createElementNS(NS,'rect');
   bg.setAttribute('x', LEFT+colW); bg.setAttribute('y', TOP-12);
   bg.setAttribute('width', W-LEFT-colW-10); bg.setAttribute('height', 5*ROWH+24);
-  bg.setAttribute('fill','#2a2016'); bg.setAttribute('rx','4');
+  bg.setAttribute('fill','#6b4423'); bg.setAttribute('rx','6');
   svg.appendChild(bg);
   for (let f = 1; f <= nfrets+1; f++){
     const l = document.createElementNS(NS,'line');
     const x = LEFT + f*colW;
     l.setAttribute('x1',x); l.setAttribute('x2',x);
     l.setAttribute('y1',TOP-12); l.setAttribute('y2',TOP+5*ROWH+12);
-    l.setAttribute('stroke', f===1 ? '#d8d8d8' : '#5a5040');
+    l.setAttribute('stroke', f===1 ? '#f2ead8' : '#c9b088');
     l.setAttribute('stroke-width', f===1 ? 5 : 2);
     svg.appendChild(l);
   }
   for (const f of INLAYS.filter(x => x <= nfrets)){
     const t = document.createElementNS(NS,'text');
     t.setAttribute('x', fx(f)); t.setAttribute('y', H-2);
-    t.setAttribute('fill','#9aa1b5'); t.setAttribute('font-size','12'); t.setAttribute('text-anchor','middle');
+    t.setAttribute('fill','#a89b83'); t.setAttribute('font-size','12'); t.setAttribute('text-anchor','middle');
     t.textContent = f;
     svg.appendChild(t);
     const dot = document.createElementNS(NS,'circle');
     dot.setAttribute('cx', fx(f)); dot.setAttribute('cy', TOP+2.5*ROWH);
-    dot.setAttribute('r', f===12 ? 0 : 5); dot.setAttribute('fill','#463a28');
+    dot.setAttribute('r', f===12 ? 0 : 5); dot.setAttribute('fill','#e6d7b4');
     svg.appendChild(dot);
     if (f === 12){
       for (const dy of [-ROWH, ROWH]){
         const d2 = document.createElementNS(NS,'circle');
         d2.setAttribute('cx', fx(12)); d2.setAttribute('cy', TOP+2.5*ROWH+dy);
-        d2.setAttribute('r',5); d2.setAttribute('fill','#463a28');
+        d2.setAttribute('r',5); d2.setAttribute('fill','#e6d7b4');
         svg.appendChild(d2);
       }
     }
@@ -543,11 +547,11 @@ function Fretboard(container, nfrets = NFRETS){
     const l = document.createElementNS(NS,'line');
     l.setAttribute('x1',LEFT+4); l.setAttribute('x2',W-10);
     l.setAttribute('y1',sy(s)); l.setAttribute('y2',sy(s));
-    l.setAttribute('stroke','#c0c4cc'); l.setAttribute('stroke-width', 1 + s*0.5);
+    l.setAttribute('stroke','#8d94a0'); l.setAttribute('stroke-width', 1 + s*0.5);
     svg.appendChild(l);
     const t = document.createElementNS(NS,'text');
     t.setAttribute('x', 6); t.setAttribute('y', sy(s)+4);
-    t.setAttribute('fill','#9aa1b5'); t.setAttribute('font-size','13');
+    t.setAttribute('fill','#7c705d'); t.setAttribute('font-size','13');
     t.textContent = pcFR(OPEN_STRINGS[s]%12);
     svg.appendChild(t);
   }

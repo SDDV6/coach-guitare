@@ -80,18 +80,18 @@ DG.chordbox = function(sh, showIvl){
   const base = Math.max(1, Math.min(...(frets.length ? frets : [1])));
   const top = base > 3 ? base : 1;
   const W = 190, H = 210, L = 30, T = 44, cw = (W-60)/5, rh = (H-T-24)/4;
-  let out = `<rect x="${L}" y="${T}" width="${cw*5}" height="${rh*4}" fill="none" stroke="#5c6476"/>`;
+  let out = `<rect x="${L}" y="${T}" width="${cw*5}" height="${rh*4}" fill="none" stroke="#8a7d66"/>`;
   for (let i = 1; i < 5; i++){
-    out += `<line x1="${L+i*cw}" y1="${T}" x2="${L+i*cw}" y2="${T+rh*4}" stroke="#5c6476"/>`;
-    out += `<line x1="${L}" y1="${T+i*rh}" x2="${L+cw*5}" y2="${T+i*rh}" stroke="#5c6476"/>`;
+    out += `<line x1="${L+i*cw}" y1="${T}" x2="${L+i*cw}" y2="${T+rh*4}" stroke="#8a7d66"/>`;
+    out += `<line x1="${L}" y1="${T+i*rh}" x2="${L+cw*5}" y2="${T+i*rh}" stroke="#8a7d66"/>`;
   }
-  if (top === 1) out += `<rect x="${L-2}" y="${T-5}" width="${cw*5+4}" height="6" rx="2" fill="#c0c4cc"/>`;
-  else out += `<text x="${L+cw*5+8}" y="${T+rh*0.65}" font-size="13" fill="#8d95a8">${top}</text>`;
+  if (top === 1) out += `<rect x="${L-2}" y="${T-5}" width="${cw*5+4}" height="6" rx="2" fill="#8a7d66"/>`;
+  else out += `<text x="${L+cw*5+8}" y="${T+rh*0.65}" font-size="13" fill="#7c705d">${top}</text>`;
   for (let s = 0; s < 6; s++){
     const x = L + s*cw;
     const c = sh.f[s];
     if (c === 'x') out += `<text x="${x}" y="${T-12}" text-anchor="middle" font-size="14" fill="#f87171">✕</text>`;
-    else if (c === '0') out += `<circle cx="${x}" cy="${T-16}" r="6" fill="none" stroke="#8d95a8" stroke-width="1.6"/>`;
+    else if (c === '0') out += `<circle cx="${x}" cy="${T-16}" r="6" fill="none" stroke="#7c705d" stroke-width="1.6"/>`;
   }
   notes.filter(n => n.fret > 0).forEach(n => {
     const x = L + n.s*cw, y = T + (n.fret - top + 0.5)*rh;
@@ -100,7 +100,7 @@ DG.chordbox = function(sh, showIvl){
     if (showIvl) out += `<text x="${x}" y="${y+4}" text-anchor="middle" font-size="10" font-weight="700" fill="#14161c">${IVL_SHORT[n.ivl]||''}</text>`;
   });
   notes.filter(n => n.fret === 0 && showIvl).forEach(n => {
-    out += `<text x="${L+n.s*cw}" y="${T+rh*4+16}" text-anchor="middle" font-size="10" fill="#8d95a8">${IVL_SHORT[n.ivl]||''}</text>`;
+    out += `<text x="${L+n.s*cw}" y="${T+rh*4+16}" text-anchor="middle" font-size="10" fill="#7c705d">${IVL_SHORT[n.ivl]||''}</text>`;
   });
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="max-width:190px">${out}</svg>`;
 };
@@ -111,20 +111,20 @@ DG.formula = function(){
     out += `<rect x="${x}" y="${y-28}" width="44" height="28" rx="6" fill="${i===0||i===7?'#f6a92c':'#5ba7f7'}"/>` +
            `<text x="${x+22}" y="${y-9}" text-anchor="middle" font-size="13" font-weight="700" fill="#14161c">${labels[i]}</text>`;
     if (i < 7){
-      out += `<text x="${x+58}" y="${y-38}" text-anchor="middle" font-size="11" fill="${steps[i]===1?'#f97362':'#8d95a8'}" font-weight="600">${steps[i]===1?'½ ton':'1 ton'}</text>`;
+      out += `<text x="${x+58}" y="${y-38}" text-anchor="middle" font-size="11" fill="${steps[i]===1?'#f97362':'#7c705d'}" font-weight="600">${steps[i]===1?'½ ton':'1 ton'}</text>`;
       x += 50; y -= steps[i]*14;
     }
   }
   return `<svg viewBox="0 0 420 170" xmlns="http://www.w3.org/2000/svg">${out}</svg>`;
 };
 DG.intervals = function(){
-  const rows = [[12,'Octave','#a78bfa'],[7,'Quinte','#5ba7f7'],[5,'Quarte','#4ade80'],[4,'Tierce maj.','#f6a92c'],[3,'Tierce min.','#f97362'],[2,'Seconde','#8d95a8']];
+  const rows = [[12,'Octave','#a78bfa'],[7,'Quinte','#5ba7f7'],[5,'Quarte','#4ade80'],[4,'Tierce maj.','#f6a92c'],[3,'Tierce min.','#f97362'],[2,'Seconde','#7c705d']];
   let out = '';
   rows.forEach(([s,n,c],i) => {
     const y = 18 + i*26, w = s*24;
     out += `<rect x="90" y="${y}" width="${w}" height="16" rx="8" fill="${c}"/>` +
-           `<text x="84" y="${y+12}" text-anchor="end" font-size="11" fill="#8d95a8">${n}</text>` +
-           `<text x="${96+w}" y="${y+12}" font-size="11" fill="#eef0f4" font-weight="600">${s} cases</text>`;
+           `<text x="84" y="${y+12}" text-anchor="end" font-size="11" fill="#7c705d">${n}</text>` +
+           `<text x="${96+w}" y="${y+12}" font-size="11" fill="#2b2317" font-weight="600">${s} cases</text>`;
   });
   return `<svg viewBox="0 0 420 180" xmlns="http://www.w3.org/2000/svg">${out}</svg>`;
 };
@@ -136,10 +136,10 @@ DG.triad = function(){
     <text x="210" y="107" text-anchor="middle" font-size="14" font-weight="700" fill="#14161c">Tierce (3)</text>
     <rect x="120" y="24" width="180" height="40" rx="9" fill="#a78bfa"/>
     <text x="210" y="49" text-anchor="middle" font-size="14" font-weight="700" fill="#14161c">Quinte (5)</text>
-    <text x="330" y="135" font-size="11" fill="#8d95a8">majeur : +4 cases</text>
-    <text x="330" y="150" font-size="11" fill="#8d95a8">mineur : +3 cases</text>
-    <text x="330" y="77" font-size="11" fill="#8d95a8">majeur : +3 cases</text>
-    <text x="330" y="92" font-size="11" fill="#8d95a8">mineur : +4 cases</text>
+    <text x="330" y="135" font-size="11" fill="#7c705d">majeur : +4 cases</text>
+    <text x="330" y="150" font-size="11" fill="#7c705d">mineur : +3 cases</text>
+    <text x="330" y="77" font-size="11" fill="#7c705d">majeur : +3 cases</text>
+    <text x="330" y="92" font-size="11" fill="#7c705d">mineur : +4 cases</text>
   </svg>`;
 };
 DG.circle = function(){
@@ -148,23 +148,23 @@ DG.circle = function(){
   for (let i = 0; i < 12; i++){
     const a = i*Math.PI/6 - Math.PI/2;
     const x = 160 + Math.cos(a)*118, y = 140 + Math.sin(a)*118;
-    out += `<circle cx="${x}" cy="${y}" r="22" fill="${i===0?'#f6a92c':'#1c1f27'}" stroke="${i===0?'#f6a92c':'#323744'}" stroke-width="2"/>` +
-           `<text x="${x}" y="${y+5}" text-anchor="middle" font-size="13" font-weight="700" fill="${i===0?'#14161c':'#eef0f4'}">${notes[i]}</text>`;
+    out += `<circle cx="${x}" cy="${y}" r="22" fill="${i===0?'#f6a92c':'#ffffff'}" stroke="${i===0?'#f6a92c':'#d9cdb6'}" stroke-width="2"/>` +
+           `<text x="${x}" y="${y+5}" text-anchor="middle" font-size="13" font-weight="700" fill="${i===0?'#14161c':'#2b2317'}">${notes[i]}</text>`;
   }
-  out += `<text x="160" y="132" text-anchor="middle" font-size="12" fill="#8d95a8">sens horaire :</text>
+  out += `<text x="160" y="132" text-anchor="middle" font-size="12" fill="#7c705d">sens horaire :</text>
           <text x="160" y="150" text-anchor="middle" font-size="12" fill="#f6a92c" font-weight="700">+ une quinte</text>`;
   return `<svg viewBox="0 0 320 285" xmlns="http://www.w3.org/2000/svg">${out}</svg>`;
 };
 DG.degrees = function(){
-  const items = [['I','Maj','#f6a92c'],['ii','min','#5ba7f7'],['iii','min','#5ba7f7'],['IV','Maj','#f6a92c'],['V','Maj','#f97362'],['vi','min','#a78bfa'],['vii°','dim','#5c6476']];
+  const items = [['I','Maj','#f6a92c'],['ii','min','#5ba7f7'],['iii','min','#5ba7f7'],['IV','Maj','#f6a92c'],['V','Maj','#f97362'],['vi','min','#a78bfa'],['vii°','dim','#8a7d66']];
   let out = '';
   items.forEach(([d,q,c],i) => {
     const x = 12 + i*58;
-    out += `<rect x="${x}" y="30" width="50" height="56" rx="10" fill="#1c1f27" stroke="${c}" stroke-width="2"/>` +
+    out += `<rect x="${x}" y="30" width="50" height="56" rx="10" fill="#ffffff" stroke="${c}" stroke-width="2"/>` +
            `<text x="${x+25}" y="55" text-anchor="middle" font-size="16" font-weight="700" fill="${c}">${d}</text>` +
-           `<text x="${x+25}" y="74" text-anchor="middle" font-size="11" fill="#8d95a8">${q}</text>`;
+           `<text x="${x+25}" y="74" text-anchor="middle" font-size="11" fill="#7c705d">${q}</text>`;
   });
-  out += `<text x="215" y="16" text-anchor="middle" font-size="12" fill="#8d95a8">Les 7 accords « compatibles » d'une tonalité majeure</text>`;
+  out += `<text x="215" y="16" text-anchor="middle" font-size="12" fill="#7c705d">Les 7 accords « compatibles » d'une tonalité majeure</text>`;
   return `<svg viewBox="0 0 430 100" xmlns="http://www.w3.org/2000/svg">${out}</svg>`;
 };
 DG.rhythm = function(){
@@ -172,7 +172,7 @@ DG.rhythm = function(){
   let out = '';
   rows.forEach(([n,d,count],r) => {
     const y = 26 + r*40;
-    out += `<text x="10" y="${y+5}" font-size="12" fill="#8d95a8">${n}</text><text x="360" y="${y+5}" font-size="11" fill="#5c6476">${d}</text>`;
+    out += `<text x="10" y="${y+5}" font-size="12" fill="#7c705d">${n}</text><text x="360" y="${y+5}" font-size="11" fill="#8a7d66">${d}</text>`;
     for (let i = 0; i < count; i++){
       const x = 110 + i*(232/count);
       const filled = r >= 2;
@@ -196,12 +196,12 @@ DG.voicelead = function(){
     const y = 60 + ri*38;
     r.forEach((note, c) => {
       const moved = c > 0 && r[c] !== r[c-1];
-      out += `<circle cx="${cols[c]}" cy="${y}" r="17" fill="${moved?'#f97362':'#1c1f27'}" stroke="${moved?'#f97362':'#323744'}" stroke-width="2"/>` +
-             `<text x="${cols[c]}" y="${y+5}" text-anchor="middle" font-size="12" font-weight="700" fill="${moved?'#14161c':'#eef0f4'}">${note}</text>`;
-      if (c > 0) out += `<line x1="${cols[c-1]+20}" y1="${y}" x2="${cols[c]-20}" y2="${y}" stroke="#5c6476" stroke-width="1.4" stroke-dasharray="${moved?'0':'4 4'}"/>`;
+      out += `<circle cx="${cols[c]}" cy="${y}" r="17" fill="${moved?'#f97362':'#ffffff'}" stroke="${moved?'#f97362':'#d9cdb6'}" stroke-width="2"/>` +
+             `<text x="${cols[c]}" y="${y+5}" text-anchor="middle" font-size="12" font-weight="700" fill="${moved?'#14161c':'#2b2317'}">${note}</text>`;
+      if (c > 0) out += `<line x1="${cols[c-1]+20}" y1="${y}" x2="${cols[c]-20}" y2="${y}" stroke="#8a7d66" stroke-width="1.4" stroke-dasharray="${moved?'0':'4 4'}"/>`;
     });
   });
-  out += `<text x="210" y="218" text-anchor="middle" font-size="11" fill="#8d95a8">En rouge : les seules notes qui bougent (d'un demi-ton !)</text>`;
+  out += `<text x="210" y="218" text-anchor="middle" font-size="11" fill="#7c705d">En rouge : les seules notes qui bougent (d'un demi-ton !)</text>`;
   return `<svg viewBox="0 0 420 230" xmlns="http://www.w3.org/2000/svg">${out}</svg>`;
 };
 
