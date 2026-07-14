@@ -17,7 +17,24 @@ function defaultProfile(){
 function loadProfile(){
   try{
     const raw = localStorage.getItem('cg_profile');
-    if (raw){ P = Object.assign(defaultProfile(), JSON.parse(raw)); return; }
+    if (raw){
+      P = Object.assign(defaultProfile(), JSON.parse(raw));
+      // v2 : le parcours passe de 16 à 20 chapitres — on remappe les compétences
+      if ((P.v||1) < 2){
+        const remap = {scalesMaj:'improv', scalesMin:'improv', penta:'improv', modes:'improv',
+                       chords:'chordconst', functions:'analysis', cadences:'analysis', inversions:'voicelead'};
+        for (const [oldK, newK] of Object.entries(remap)){
+          if (P.skills[oldK]){
+            P.skills[newK] = P.skills[newK] || {ok:0, bad:0};
+            P.skills[newK].ok += P.skills[oldK].ok;
+            P.skills[newK].bad += P.skills[oldK].bad;
+            delete P.skills[oldK];
+          }
+        }
+        P.v = 2;
+      }
+      return;
+    }
   }catch(e){}
   P = defaultProfile();
   // Migration depuis l'ancienne version
@@ -130,7 +147,11 @@ function notionLabel(key){
     'chord-7':'les accords de 7e','deg-tierce':'la tierce des accords','deg-fondamentale':'la fondamentale',
     'deg-fonctions':'les fonctions 1-3-5','inversions':'les renversements','cadences':'les cadences',
     'modes':'les modes','mode-dor':'le mode dorien','mode-mixo':'le mode mixolydien','tonalite':'les tonalités',
-    'melodie':'la reproduction de mélodies','octaves':'les octaves','blues':'la grille de blues'};
+    'melodie':'la reproduction de mélodies','octaves':'les octaves','blues':'la grille de blues',
+    'diagram':'la lecture des diagrammes','pima':'le fingerstyle (P-I-M-A)','shell':'les shell chords',
+    '251':'le ii-V-I','ext':'les extensions (9, 11, 13)','sub':'les substitutions','vl':'le voice leading',
+    'drop2':'les voicings drop 2','drop3':'les voicings drop 3','openv':'les open voicings',
+    'quartal':'les accords quartaux','reharm':'la réharmonisation'};
   for (const d of DEGREE_NAMES) map['deg-'+d] = 'le degré ' + d;
   return map[key] || key;
 }
@@ -198,7 +219,8 @@ function bumpGoal(key, n = 1){
       if (g.got >= g.target){ g.done = true; changed = true; addXp(10, true); toast('✅ Objectif atteint : ' + g.t); sfx.streak(); }
     }
   });
-  if (changed && activeTab === 'home') renderHome();
+  // NB : on ne re-rend PAS l'accueil ici — remplacer le DOM pendant que
+  // l'utilisateur est en train de taper « avalait » ses touchers (bug iOS).
   save();
 }
 
@@ -220,6 +242,7 @@ function checkAllBadges(){
   checkBadge('perfect', P.perfect >= 1);
   checkBadge('daily5', P.dailyDone >= 5);
   checkBadge('ear20', P.earGames >= 20);
+  checkBadge('jazzcat', mastery('shell') >= 80);
 }
 
 /* ---------- UI helpers ---------- */
@@ -303,12 +326,12 @@ function renderHome(){
   <div class="hero"><h1>${salut()}, guitariste <em>niveau ${li.lvl}</em></h1>
     <p>${due.length ? due.length + ' notion' + (due.length>1?'s':'') + ' à réviser aujourd\'hui.' : 'Tout est frais dans ta mémoire. En route !'}</p></div>
 
-  <div class="card tappable appear" onclick="openStep('${cur.id}')" style="display:flex; align-items:center; gap:18px">
+  <div class="card tappable appear" onclick="continueLearning()" style="display:flex; align-items:center; gap:18px">
     ${ring(curM, 72, cur.icon)}
     <div style="flex:1">
       <div class="eyebrow">Continuer ma progression</div>
       <b style="font-size:1.1rem">${cur.name}</b><br>
-      <small style="color:var(--muted)">${cur.desc}</small>
+      <small style="color:var(--muted)">${nextActionLabel(cur)}</small>
     </div>
     <span style="font-size:1.4rem; color:var(--faint)">›</span>
   </div>
@@ -354,6 +377,29 @@ function renderHome(){
 function salut(){
   const h = new Date().getHours();
   return h < 6 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
+}
+/* « Continuer » = mener directement à la PROCHAINE action utile :
+   leçon non lue → l'ouvrir ; sinon → lancer le jeu le plus utile de l'étape. */
+function nextAction(st){
+  for (let i = 0; i < st.lessons.length; i++)
+    if (!P.lessonsRead[st.id+':'+i]) return {type:'lesson', i};
+  const playable = st.games.filter(g => GAMES[g] && (!GAMES[g].mic || micOn));
+  if (playable.length) return {type:'game', id:playable[rint(playable.length)]};
+  return {type:'step'};
+}
+function nextActionLabel(st){
+  const a = nextAction(st);
+  if (a.type === 'lesson') return '▶ Leçon : ' + st.lessons[a.i].t;
+  if (a.type === 'game') return '▶ Jeu : ' + GAMES[a.id].name;
+  return st.desc;
+}
+function continueLearning(){
+  const st = PATH[currentStepIndex()];
+  const a = nextAction(st);
+  sfx.tap();
+  if (a.type === 'lesson') openLesson(st.id, a.i);
+  else if (a.type === 'game') startGame(a.id);
+  else openStep(st.id);
 }
 
 /* ---------- Parcours ---------- */
@@ -408,6 +454,7 @@ function openLesson(stepId, li){
     <div class="eyebrow">${st.icon} ${st.name}</div>
     <div class="lesson-txt">${l.x}</div>
     ${l.dg && DG[l.dg] ? `<div class="diagram">${DG[l.dg]()}</div>` : ''}
+    ${l.sh ? (() => { const s = SHAPES.find(x => x.n === l.sh); return s ? `<div class="diagram">${DG.chordbox(s, true)}<div class="hint" style="text-align:center; margin-top:4px">${s.n}</div></div>` : ''; })() : ''}
     <div class="row" style="margin-top:16px">
       ${l.try && GAMES[l.try] ? `<button class="btn primary big" style="flex:1" onclick="closeSheet(); startGame('${l.try}')">▶ Essaie maintenant : ${GAMES[l.try].name}</button>` : ''}
     </div>
@@ -454,8 +501,9 @@ function lockedGame(id){
 GAMES.survival = {name:'Mode survie', icon:'💀', cat:['exam'], skill:'mastery', mic:false, type:'survival', rounds:999,
   desc:'3 vies, questions de plus en plus dures. Record à battre !', gen(){ return null; }};
 
-const MCQ_POOL = ['reverseQuiz','semitones','earInterval','completeScale','intruder','chordTones','degreeQuiz','cadenceQuiz','modeQuiz','keyQuiz'];
-const EXAM_POOL = [...MCQ_POOL, 'findNote','buildInterval','degreePlay'];
+const MCQ_POOL = ['reverseQuiz','semitones','earInterval','completeScale','intruder','chordTones','degreeQuiz','cadenceQuiz','modeQuiz','keyQuiz',
+                  'readDiagram','pimaQuiz','shellQuiz','extQuiz','subQuiz','vlQuiz','drop2Quiz','drop3Quiz','openvQuiz','quartalQuiz','reharmQuiz'];
+const EXAM_POOL = [...MCQ_POOL, 'findNote','buildInterval','degreePlay','shellBuild','cadence251'];
 
 function ensureDaily(){
   const k = todayKey();
@@ -545,8 +593,10 @@ function gvReplayBtn(){
   return GV.q && GV.q.play && GV.q.replay ? `<button class="btn" onclick="sfx.tap(); playMelody(GV.q.play, ${GV.q.gap||0.55})">🔊 Réécouter</button>` : '';
 }
 function pickExamQ(){
-  const srcId = rnd(GV.def.type === 'survival' ? MCQ_POOL : EXAM_POOL);
-  const src = GAMES[srcId];
+  // Pool filtré d'avance : jamais de question micro si le micro est coupé
+  const base = GV.def.type === 'survival' ? MCQ_POOL : EXAM_POOL;
+  const pool = base.filter(id => !GAMES[id].mic || micOn);
+  const src = GAMES[rnd(pool)];
   const q = src.gen(GV.def.type === 'survival' ? Math.min(1, .3 + GV.ok*.05) : .7);
   q._type = src.type; q._skill = src.skill; q._mic = src.mic;
   return q;
@@ -561,8 +611,6 @@ function nextRound(){
   let q;
   if (def.type === 'exam' || def.type === 'survival'){
     q = pickExamQ();
-    // examen : ne proposer les questions micro que si le micro tourne
-    while (q._mic && !micOn){ q = pickExamQ(); }
   } else {
     q = def.gen(mastery(def.skill)/100);
     q._type = def.type; q._skill = def.skill; q._mic = def.mic;
@@ -589,6 +637,7 @@ function answered(ok, xp){
 /* --- rendu par mécanique --- */
 function renderMcq(q){
   gvBody().innerHTML = `<div class="gv-q">${q.q}</div>${q.sub?`<div class="gv-sub">${q.sub}</div>`:''}
+    ${q.svg ? `<div class="diagram">${q.svg}</div>` : ''}
     <div class="mcq">${q.choices.map((c,i)=>`<button onclick="mcqAnswer(${i})">${c}</button>`).join('')}</div>`;
   gvFoot().innerHTML = gvReplayBtn();
 }
@@ -623,7 +672,7 @@ function renderMicSeq(q){
   gvBody().innerHTML = `<div class="gv-q">${q.q}</div>${q.sub?`<div class="gv-sub">${q.sub}</div>`:''}
     <div id="gvChips" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;max-width:640px">
       ${q.seq.map((pc,i)=>`<span class="chip ${i===0?'now':'dim'}" data-i="${i}">${q.seqLabels?q.seqLabels[i]:pcFR(pc)}</span>`).join('')}
-    </div><div class="gv-big" id="gvPlayed">🎸</div>`;
+    </div>${q.svg ? `<div class="diagram">${q.svg}</div>` : ''}<div class="gv-big" id="gvPlayed">🎸</div>`;
 }
 function renderMelody(q){
   GV.seqIdx = 0;
