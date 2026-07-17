@@ -69,6 +69,18 @@ function processFrame(){
   analyser.getFloatTimeDomainData(timeBuf);
   const {freq, rms, clarity} = autoCorrelate(timeBuf, audioCtx.sampleRate);
   document.getElementById('micLevelBar').style.width = Math.min(100, rms*600) + '%';
+  // Noise gate + auto-wah : pilotés par l'enveloppe mesurée ici (toutes les 11 ms)
+  if (amp && audioCtx.state === 'running'){
+    const tNow = audioCtx.currentTime;
+    if (amp.gateThr > 0){
+      const open = rms > amp.gateThr;
+      amp.gate.gain.setTargetAtTime(open ? 1 : 0, tNow, open ? 0.004 : 0.06);
+    }
+    if (amp.wahAmt > 0){
+      wahEnv += (Math.min(1, rms*22) - wahEnv) * 0.35;
+      amp.wahBp.frequency.setTargetAtTime(350 + wahEnv*2800, tNow, 0.03);
+    }
+  }
   if (++diagTick % 45 === 0) updateDiag(rms);
   // Garde-fou anti-silence (bug Safari de fréquence d'échantillonnage)
   if (rms === 0 && micHealthy()) zeroFrames++; else zeroFrames = 0;
@@ -133,6 +145,10 @@ async function startMic(){
     const trackRate = forceRate || ((track.getSettings && track.getSettings().sampleRate) || 0);
     await ensureContext(trackRate || undefined);
     audioCtx.resume().catch(()=>{});
+    // Génère (une fois par contexte) l'IR du baffle pour la convolution
+    if (!cabIR || cabIR.sampleRate !== audioCtx.sampleRate){
+      try{ cabIR = await makeCabIR(audioCtx); }catch(e){ cabIR = null; }
+    }
     const src = audioCtx.createMediaStreamSource(stream);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
@@ -328,8 +344,33 @@ function confetti(){
   })(t0);
 }
 
-/* ---------- Ampli virtuel ---------- */
-let amp = null;
+/* ---------- Ampli virtuel (pédalier v2) ---------- */
+let amp = null, cabIR = null, wahEnv = 0;
+
+// Réponse impulsionnelle de baffle synthétisée hors-ligne : une impulsion passée
+// dans une chaîne de filtres façon 4x12 (thump ~110 Hz, creux 400 Hz, présence
+// 3 kHz, chute raide au-delà de 5 kHz). Bien plus réaliste qu'un simple passe-bas.
+async function makeCabIR(ctx){
+  const rate = ctx.sampleRate, len = Math.floor(rate*0.085);
+  const off = new OfflineAudioContext(1, len, rate);
+  const buf = off.createBuffer(1, len, rate);
+  buf.getChannelData(0)[0] = 1;
+  const src = off.createBufferSource(); src.buffer = buf;
+  const chain = [
+    ['highpass', 78, .8, 0], ['peaking', 110, 1.0, 5.5], ['peaking', 420, 1.2, -4],
+    ['peaking', 900, 1.6, -1.5], ['peaking', 1700, 1.5, 2.5], ['peaking', 3000, 1.3, 5],
+    ['lowpass', 4700, .9, 0], ['lowpass', 5400, .8, 0]
+  ];
+  let node = src;
+  for (const [type, f, q, g] of chain){
+    const b = off.createBiquadFilter();
+    b.type = type; b.frequency.value = f; b.Q.value = q; b.gain.value = g;
+    node.connect(b); node = b;
+  }
+  node.connect(off.destination);
+  src.start();
+  return await off.startRendering();
+}
 function distCurve(amount){
   const k = amount*amount*180 + 2;
   const n = 2048, curve = new Float32Array(n);
@@ -348,43 +389,103 @@ function makeIR(ctx, seconds=1.7, decay=2.8){
 function buildAmp(ctx, src){
   const input = ctx.createGain();  input.gain.value = 1.4;
   const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 75;
+  // Noise gate (piloté par l'enveloppe mesurée dans processFrame)
+  const gate = ctx.createGain(); gate.gain.value = 1;
   const comp = ctx.createDynamicsCompressor();
   comp.attack.value = 0.005; comp.release.value = 0.12; comp.knee.value = 12;
+  // Boost propre (avant la disto, comme une pédale de boost)
+  const boost = ctx.createGain(); boost.gain.value = 1;
+  // Auto-wah : passe-bande piloté par l'enveloppe, en dry/wet
+  const wahDry = ctx.createGain(); const wahWet = ctx.createGain(); const wahOut = ctx.createGain();
+  const wahBp = ctx.createBiquadFilter(); wahBp.type = 'bandpass'; wahBp.frequency.value = 600; wahBp.Q.value = 4;
+  const wahMk = ctx.createGain(); wahMk.gain.value = 1.6; // compense la perte du passe-bande
+  // Distorsion à DEUX étages avec filtrage inter-étages (topologie d'ampli réel) :
+  // le passe-haut entre les étages évite la bouillie dans les graves,
+  // le passe-bas évite la friture dans les aigus.
   const pre = ctx.createGain();
-  const shaper = ctx.createWaveShaper(); shaper.oversample = '4x';
+  const st1 = ctx.createWaveShaper(); st1.oversample = '4x';
+  const isHp = ctx.createBiquadFilter(); isHp.type = 'highpass'; isHp.frequency.value = 120;
+  const isLp = ctx.createBiquadFilter(); isLp.type = 'lowpass'; isLp.frequency.value = 6200;
+  const pre2 = ctx.createGain();
+  const st2 = ctx.createWaveShaper(); st2.oversample = '4x';
   const bass = ctx.createBiquadFilter(); bass.type = 'lowshelf'; bass.frequency.value = 120;
   const mid = ctx.createBiquadFilter(); mid.type = 'peaking'; mid.frequency.value = 650; mid.Q.value = 0.9;
   const treble = ctx.createBiquadFilter(); treble.type = 'highshelf'; treble.frequency.value = 3000;
-  const cab = ctx.createBiquadFilter(); cab.type = 'lowpass'; cab.frequency.value = 5200;
+  // Baffle : convolution sur IR synthétisée (remplace l'ancien simple passe-bas)
+  const cabConv = ctx.createConvolver(); cabConv.normalize = true;
+  if (cabIR && cabIR.sampleRate === ctx.sampleRate) cabConv.buffer = cabIR;
   const post = ctx.createGain();
+  // Chorus
   const chDry = ctx.createGain(); const chWet = ctx.createGain(); const chOut = ctx.createGain();
   const chDelay = ctx.createDelay(0.06); chDelay.delayTime.value = 0.018;
   const lfo = ctx.createOscillator(); lfo.frequency.value = 1.3;
   const lfoAmt = ctx.createGain(); lfoAmt.gain.value = 0.004;
   lfo.connect(lfoAmt); lfoAmt.connect(chDelay.delayTime); lfo.start();
+  // Phaser : 4 étages passe-tout balayés par un LFO + réinjection
+  const phDry = ctx.createGain(); const phWet = ctx.createGain(); const phOut = ctx.createGain();
+  const phStages = [350, 720, 1100, 1600].map(f => {
+    const ap = ctx.createBiquadFilter(); ap.type = 'allpass'; ap.frequency.value = f; ap.Q.value = 0.6;
+    return ap;
+  });
+  const phFb = ctx.createGain(); phFb.gain.value = 0;
+  const phLfo = ctx.createOscillator(); phLfo.frequency.value = 0.5;
+  const phAmt = ctx.createGain(); phAmt.gain.value = 500;
+  phLfo.connect(phAmt); phStages.forEach(ap => phAmt.connect(ap.frequency)); phLfo.start();
+  // Flanger : retard court modulé + forte réinjection
+  const flDry = ctx.createGain(); const flWet = ctx.createGain(); const flOut = ctx.createGain();
+  const flDelay = ctx.createDelay(0.02); flDelay.delayTime.value = 0.0035;
+  const flLfo = ctx.createOscillator(); flLfo.frequency.value = 0.25;
+  const flAmt = ctx.createGain(); flAmt.gain.value = 0.0022;
+  flLfo.connect(flAmt); flAmt.connect(flDelay.delayTime); flLfo.start();
+  const flFb = ctx.createGain(); flFb.gain.value = 0;
+  // Trémolo : volume modulé par un LFO
+  const trem = ctx.createGain(); trem.gain.value = 1;
+  const trLfo = ctx.createOscillator(); trLfo.frequency.value = 5.2;
+  const trAmt = ctx.createGain(); trAmt.gain.value = 0;
+  trLfo.connect(trAmt); trAmt.connect(trem.gain); trLfo.start();
+  // Delay
   const dlDry = ctx.createGain(); const dlWet = ctx.createGain(); const dlOut = ctx.createGain();
   const dl = ctx.createDelay(1.2); dl.delayTime.value = 0.3;
   const dlFb = ctx.createGain(); dlFb.gain.value = 0.25;
   const dlTone = ctx.createBiquadFilter(); dlTone.type = 'lowpass'; dlTone.frequency.value = 2600;
   dl.connect(dlTone); dlTone.connect(dlFb); dlFb.connect(dl);
+  // Réverb
   const rvDry = ctx.createGain(); const rvWet = ctx.createGain();
   const conv = ctx.createConvolver(); conv.buffer = makeIR(ctx);
   const master = ctx.createGain(); master.gain.value = 0;
   master.channelCount = 1; master.channelCountMode = 'explicit'; // mono centré
-  src.connect(input); input.connect(hp); hp.connect(comp); comp.connect(pre);
-  pre.connect(shaper); shaper.connect(bass); bass.connect(mid); mid.connect(treble);
-  treble.connect(cab); cab.connect(post);
-  post.connect(chDry); chDry.connect(chOut);
-  post.connect(chDelay); chDelay.connect(chWet); chWet.connect(chOut);
-  chOut.connect(dlDry); dlDry.connect(dlOut);
-  chOut.connect(dl); dl.connect(dlWet); dlWet.connect(dlOut);
+  // ---- Câblage ----
+  src.connect(input); input.connect(hp); hp.connect(gate); gate.connect(comp); comp.connect(boost);
+  boost.connect(wahDry); wahDry.connect(wahOut);
+  boost.connect(wahBp); wahBp.connect(wahMk); wahMk.connect(wahWet); wahWet.connect(wahOut);
+  wahOut.connect(pre); pre.connect(st1); st1.connect(isHp); isHp.connect(isLp);
+  isLp.connect(pre2); pre2.connect(st2);
+  st2.connect(bass); bass.connect(mid); mid.connect(treble);
+  treble.connect(cabConv); cabConv.connect(post);
+  post.connect(phDry); phDry.connect(phOut);
+  post.connect(phStages[0]);
+  phStages[0].connect(phStages[1]); phStages[1].connect(phStages[2]); phStages[2].connect(phStages[3]);
+  phStages[3].connect(phWet); phWet.connect(phOut);
+  phStages[3].connect(phFb); phFb.connect(phStages[0]);
+  phOut.connect(flDry); flDry.connect(flOut);
+  phOut.connect(flDelay); flDelay.connect(flWet); flWet.connect(flOut);
+  flDelay.connect(flFb); flFb.connect(flDelay);
+  flOut.connect(chDry); chDry.connect(chOut);
+  flOut.connect(chDelay); chDelay.connect(chWet); chWet.connect(chOut);
+  chOut.connect(trem);
+  trem.connect(dlDry); dlDry.connect(dlOut);
+  trem.connect(dl); dl.connect(dlWet); dlWet.connect(dlOut);
   dlOut.connect(rvDry); rvDry.connect(master);
   dlOut.connect(conv); conv.connect(rvWet); rvWet.connect(master);
   master.connect(ctx.destination);
-  return {comp, pre, shaper, bass, mid, treble, post, chDry, chWet, dl, dlFb, dlDry, dlWet, rvDry, rvWet, master, on:false};
+  return {comp, gate, boost, wahBp, wahDry, wahWet, pre, st1, pre2, st2, bass, mid, treble, cabConv, post,
+          chDry, chWet, phDry, phWet, phFb, phLfo, flDry, flWet, flFb, trem, trAmt, trLfo,
+          dl, dlFb, dlDry, dlWet, rvDry, rvWet, master, gateThr:0, wahAmt:0, on:false};
 }
 const AMP_MAP = {drive:'ampDrive', vol:'ampVol', bass:'ampBass', mid:'ampMid', treble:'ampTreble',
-                 comp:'ampComp', chorus:'ampChorus', dtime:'ampDTime', dfb:'ampDFb', dmix:'ampDMix', rev:'ampRev'};
+                 comp:'ampComp', chorus:'ampChorus', dtime:'ampDTime', dfb:'ampDFb', dmix:'ampDMix', rev:'ampRev',
+                 gate:'ampGate', boost:'ampBoost', wah:'ampWah', phaser:'ampPhaser', flanger:'ampFlanger', trem:'ampTrem'};
+const AMP_DEFAULTS = {gate:0, boost:0, wah:0, phaser:0, flanger:0, trem:0};
 function getAmpParams(){
   const P = {};
   for (const k in AMP_MAP) P[k] = parseFloat(document.getElementById(AMP_MAP[k]).value);
@@ -395,13 +496,36 @@ function ampApply(){
   localStorage.setItem('cg_amp', JSON.stringify(P));
   if (!amp) return;
   const drive = P.drive/100;
-  amp.shaper.curve = distCurve(drive);
-  amp.pre.gain.value = 1 + drive*14;
-  amp.post.gain.value = (0.9 - drive*0.5) * (P.vol/100) * 1.8;
+  // Deux étages de saturation : le 1er chauffe doucement, le 2e écrase —
+  // le même bouton Gain pilote les deux (comme le canal lead d'un ampli).
+  amp.st1.curve = distCurve(drive*0.5);
+  amp.st2.curve = distCurve(drive);
+  amp.pre.gain.value = 1 + drive*6;
+  amp.pre2.gain.value = 1 + drive*8;
+  amp.post.gain.value = (0.9 - drive*0.55) * (P.vol/100) * 2.2;
   amp.bass.gain.value = P.bass; amp.mid.gain.value = P.mid; amp.treble.gain.value = P.treble;
   const c = P.comp/100;
   amp.comp.threshold.value = -c*40;
   amp.comp.ratio.value = 1 + c*7;
+  // Noise gate : seuil d'enveloppe (0 = coupé), appliqué dans processFrame
+  amp.gateThr = P.gate > 0 ? 0.004 + (P.gate/100)*0.028 : 0;
+  if (amp.gateThr === 0) amp.gate.gain.value = 1;
+  amp.boost.gain.value = 1 + (P.boost/100)*3;
+  // Auto-wah
+  amp.wahAmt = P.wah/100;
+  amp.wahWet.gain.value = amp.wahAmt;
+  amp.wahDry.gain.value = 1 - amp.wahAmt*0.65;
+  // Phaser
+  const ph = P.phaser/100;
+  amp.phWet.gain.value = ph*0.85; amp.phDry.gain.value = 1 - ph*0.15; amp.phFb.gain.value = ph*0.35;
+  // Flanger
+  const fl = P.flanger/100;
+  amp.flWet.gain.value = fl*0.8; amp.flDry.gain.value = 1; amp.flFb.gain.value = fl*0.45;
+  // Trémolo (profondeur ; le LFO s'ajoute au gain de base)
+  const tr = P.trem/100;
+  amp.trem.gain.value = 1 - tr*0.45;
+  amp.trAmt.gain.value = tr*0.45;
+  // Chorus / delay / réverb
   amp.chDry.gain.value = 1; amp.chWet.gain.value = (P.chorus/100)*0.6;
   amp.dl.delayTime.value = P.dtime/1000;
   amp.dlFb.gain.value = Math.min(0.85, P.dfb/100);
@@ -455,7 +579,11 @@ const SONG_PRESETS = {
   'Sons à effets': [
     {n:'U2 – Where the Streets Have No Name', p:{drive:22,vol:70,bass:0,mid:1,treble:3,comp:40,chorus:0,dtime:350,dfb:45,dmix:42,rev:22}},
     {n:'Pink Floyd – Run Like Hell', p:{drive:30,vol:70,bass:1,mid:0,treble:3,comp:45,chorus:20,dtime:380,dfb:50,dmix:45,rev:20}},
-    {n:'Ambiance planante (shoegaze)', p:{drive:35,vol:68,bass:2,mid:0,treble:0,comp:30,chorus:60,dtime:520,dfb:55,dmix:40,rev:55}},
+    {n:'Van Halen – Ain\'t Talkin\' \'bout Love (phaser)', p:{drive:62,vol:68,bass:1,mid:3,treble:2,comp:15,chorus:0,dtime:300,dfb:20,dmix:0,rev:14,phaser:70,gate:25}},
+    {n:'Hendrix – Voodoo Child (wah)', p:{drive:55,vol:68,bass:1,mid:3,treble:0,comp:15,chorus:0,dtime:300,dfb:20,dmix:0,rev:16,wah:75}},
+    {n:'Heart – Barracuda (flanger)', p:{drive:52,vol:70,bass:1,mid:2,treble:2,comp:12,chorus:0,dtime:300,dfb:20,dmix:0,rev:12,flanger:65}},
+    {n:'Green Day – Boulevard of Broken Dreams (trémolo)', p:{drive:14,vol:70,bass:1,mid:0,treble:1,comp:30,chorus:0,dtime:300,dfb:20,dmix:0,rev:24,trem:70}},
+    {n:'Ambiance planante (shoegaze)', p:{drive:35,vol:68,bass:2,mid:0,treble:0,comp:30,chorus:60,dtime:520,dfb:55,dmix:40,rev:55,flanger:25}},
     {n:'Slap-back rockabilly (Elvis)', p:{drive:22,vol:70,bass:0,mid:1,treble:3,comp:25,chorus:0,dtime:110,dfb:5,dmix:35,rev:14}}
   ]
 };
@@ -471,7 +599,13 @@ const SONG_PRESETS = {
     if (!sel.value) return;
     const [group, i] = sel.value.split('|');
     const pr = SONG_PRESETS[group][parseInt(i)];
-    for (const k in pr.p) document.getElementById(AMP_MAP[k]).value = pr.p[k];
+    // Applique le preset ; les nouvelles pédales absentes du preset reviennent à 0
+    for (const k in AMP_MAP){
+      const v = (k in pr.p) ? pr.p[k] : (k in AMP_DEFAULTS ? AMP_DEFAULTS[k] : null);
+      if (v !== null) document.getElementById(AMP_MAP[k]).value = v;
+    }
+    // Gros gain sans gate précisé → noise gate automatique (anti-souffle/larsen)
+    if (!('gate' in pr.p) && pr.p.drive >= 60) document.getElementById('ampGate').value = 30;
     ampApply();
     document.getElementById('presetDesc').textContent = '🎸 ' + pr.n + ' — ajuste les curseurs à ton oreille.';
   });
