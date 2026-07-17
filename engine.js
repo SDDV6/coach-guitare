@@ -75,6 +75,9 @@ function processFrame(){
     if (amp.gateThr > 0){
       const open = rms > amp.gateThr;
       amp.gate.gain.setTargetAtTime(open ? 1 : 0, tNow, open ? 0.004 : 0.06);
+      // le même gate protège l'ampli neuronal (contexte audio séparé)
+      if (nam.on && nam.gate && nam.ctx)
+        nam.gate.gain.setTargetAtTime(open ? 1 : 0, nam.ctx.currentTime, open ? 0.004 : 0.06);
     }
     if (amp.wahAmt > 0){
       wahEnv += (Math.min(1, rms*22) - wahEnv) * 0.35;
@@ -131,6 +134,7 @@ async function ensureContext(desiredRate){
 }
 ['touchend','click'].forEach(evName => document.addEventListener(evName, () => {
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  if (nam.ctx && nam.ctx.state === 'suspended') nam.ctx.resume();
 }, {passive:true}));
 
 async function startMic(){
@@ -180,6 +184,7 @@ async function startMic(){
         return;
       }
     }
+    if (nam.ready) namConnectInput(); // rebranche l'ampli neuronal sur le nouveau flux micro
     refreshInputs();
   }catch(err){
     if (devId){
@@ -619,6 +624,7 @@ document.getElementById('ampToggle').addEventListener('click', () => {
   const btn = document.getElementById('ampToggle');
   const msg = document.getElementById('ampMsg');
   if (!micOn){ msg.textContent = 'Active d’abord le micro (bouton en haut).'; msg.className = 'bigmsg err'; return; }
+  if (!amp.on && nam.on) namDeactivate(); // un seul ampli à la fois
   amp.on = !amp.on;
   const t = audioCtx.currentTime;
   amp.master.gain.cancelScheduledValues(t);
@@ -627,6 +633,174 @@ document.getElementById('ampToggle').addEventListener('click', () => {
   btn.classList.toggle('on', amp.on);
   msg.textContent = amp.on ? '🎸 Ampli allumé — joue !' : 'Ampli éteint.';
   msg.className = 'bigmsg' + (amp.on ? ' ok' : '');
+});
+
+/* ============================================================
+   Ampli neuronal — NAM (Neural Amp Modeler) en WebAssembly
+   Moteur : tone-3000/neural-amp-modeler-wasm (MIT). Le module C++
+   crée son PROPRE AudioContext + AudioWorklet ; on y branche le micro,
+   puis la sortie passe dans une vraie IR de baffle (Celestion/Mesa…).
+   Nécessite SharedArrayBuffer → isolation cross-origin (coi-serviceworker).
+   ============================================================ */
+const nam = { script:false, module:null, ctx:null, node:null, src:null,
+              inGain:null, gate:null, cabConv:null, cabWet:null, cabDry:null, vol:null,
+              ready:false, on:false, loading:false };
+const NAM_FORCE_NANO = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 1 : 0;
+
+function namSupported(){
+  return typeof AudioWorklet !== 'undefined' && typeof SharedArrayBuffer !== 'undefined' && window.crossOriginIsolated === true;
+}
+function namStatus(txt, cls){
+  const el = document.getElementById('namStatus');
+  el.textContent = txt;
+  el.className = 'chip ' + (cls || '');
+}
+async function namEnsureScript(){
+  if (nam.script) return;
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'nam/t3k-wasm-module.js';
+    s.async = true;
+    s.onload = res;
+    s.onerror = () => rej(new Error('module NAM introuvable'));
+    document.body.appendChild(s);
+  });
+  // Attendre que le runtime Emscripten soit réellement opérationnel
+  await new Promise((res, rej) => {
+    let n = 0;
+    const t = setInterval(() => {
+      const M = window.Module;
+      if (M && M._malloc && M.stringToUTF8 && M.ccall){
+        try{ const p = M._malloc(1); if (p){ M._free(p); clearInterval(t); return res(); } }catch(e){}
+      }
+      if (++n > 200){ clearInterval(t); rej(new Error('runtime NAM non initialisé')); }
+    }, 50);
+  });
+  nam.module = window.Module;
+  nam.script = true;
+}
+async function namSetDsp(jsonStr){
+  const M = nam.module;
+  const bytes = new TextEncoder().encode(jsonStr).length + 1;
+  const ptr = M._malloc(bytes);
+  M.stringToUTF8(jsonStr, ptr, bytes);
+  try{
+    if (nam.ctx && nam.ctx.state === 'running') await nam.ctx.suspend();
+    await M.ccall('setDsp', null, ['number','number'], [ptr, NAM_FORCE_NANO], {async:true});
+  } finally { M._free(ptr); }
+  if (nam.ctx && nam.ctx.state === 'suspended') nam.ctx.resume().catch(()=>{});
+}
+function namBuildChain(){
+  const c = nam.ctx;
+  nam.inGain = c.createGain();
+  nam.gate = c.createGain();
+  nam.cabConv = c.createConvolver(); nam.cabConv.normalize = true;
+  nam.cabWet = c.createGain(); nam.cabDry = c.createGain();
+  nam.vol = c.createGain(); nam.vol.gain.value = 0;
+  nam.vol.channelCount = 1; nam.vol.channelCountMode = 'explicit'; // mono centré
+  const merge = c.createGain();
+  nam.inGain.connect(nam.gate); nam.gate.connect(nam.node);
+  nam.node.connect(nam.cabDry); nam.cabDry.connect(merge);
+  nam.node.connect(nam.cabConv); nam.cabConv.connect(nam.cabWet); nam.cabWet.connect(merge);
+  merge.connect(nam.vol); nam.vol.connect(c.destination);
+}
+function namConnectInput(){
+  if (!micStream || !nam.ctx) return;
+  try{ if (nam.src) nam.src.disconnect(); }catch(e){}
+  nam.src = nam.ctx.createMediaStreamSource(micStream);
+  nam.src.connect(nam.inGain);
+}
+async function namLoadCab(url){
+  if (!nam.cabConv) return;
+  if (!url){ nam.cabWet.gain.value = 0; nam.cabDry.gain.value = 1; return; }
+  const ab = await (await fetch(url)).arrayBuffer();
+  nam.cabConv.buffer = await nam.ctx.decodeAudioData(ab);
+  nam.cabWet.gain.value = 1; nam.cabDry.gain.value = 0;
+}
+function namApply(){
+  if (!nam.vol) return;
+  nam.vol.gain.value = nam.on ? (parseFloat(document.getElementById('namVol').value)/100)*1.2 : 0;
+  nam.inGain.gain.value = 0.2 + (parseFloat(document.getElementById('namIn').value)/100)*3;
+}
+async function namActivate(jsonOverride, label){
+  if (nam.loading) return;
+  if (!micOn){ namStatus('active d\'abord le micro', 'err'); return; }
+  if (!namSupported()){
+    namStatus(window.crossOriginIsolated === false ? 'recharge la page puis réessaie' : 'navigateur non compatible', 'err');
+    return;
+  }
+  nam.loading = true;
+  namStatus('chargement…', 'now');
+  try{
+    if (!nam.ready){
+      const readyP = new Promise(res => {
+        window.wasmAudioWorkletCreated = (node, ctx2) => {
+          nam.node = node; nam.ctx = ctx2;
+          namBuildChain();
+          res();
+        };
+      });
+      await namEnsureScript();
+      const json = jsonOverride || await (await fetch(document.getElementById('namModel').value)).text();
+      await namSetDsp(json);
+      await readyP;
+      namConnectInput();
+      await namLoadCab(document.getElementById('namCab').value);
+      nam.ready = true;
+    } else if (jsonOverride){
+      await namSetDsp(jsonOverride);
+    }
+    // un seul ampli à la fois : on coupe le pédalier classique
+    if (amp && amp.on){
+      amp.on = false; amp.master.gain.value = 0;
+      const b = document.getElementById('ampToggle');
+      b.textContent = '🔊 Allumer l\'ampli'; b.classList.remove('on');
+    }
+    nam.on = true;
+    nam.ctx.resume().catch(()=>{});
+    namApply();
+    const btn = document.getElementById('namToggle');
+    btn.textContent = '🔇 Éteindre l\'ampli neuronal'; btn.classList.add('on');
+    namStatus(label || document.getElementById('namModel').selectedOptions[0].text.split('—')[0].trim(), 'ok');
+  }catch(e){
+    console.error('NAM:', e);
+    namStatus('erreur : ' + e.message, 'err');
+  }
+  nam.loading = false;
+}
+function namDeactivate(){
+  nam.on = false;
+  if (nam.vol) nam.vol.gain.value = 0;
+  const btn = document.getElementById('namToggle');
+  btn.textContent = '🧠 Activer l\'ampli neuronal'; btn.classList.remove('on');
+  namStatus('inactif');
+}
+document.getElementById('namToggle').addEventListener('click', () => {
+  if (nam.on) namDeactivate(); else namActivate();
+});
+document.getElementById('namModel').addEventListener('change', async () => {
+  if (!nam.ready || nam.loading) return;
+  nam.loading = true;
+  namStatus('chargement…', 'now');
+  try{
+    const json = await (await fetch(document.getElementById('namModel').value)).text();
+    await namSetDsp(json);
+    namStatus(document.getElementById('namModel').selectedOptions[0].text.split('—')[0].trim(), nam.on ? 'ok' : '');
+  }catch(e){ namStatus('erreur : ' + e.message, 'err'); }
+  nam.loading = false;
+});
+document.getElementById('namCab').addEventListener('change', () => {
+  if (nam.ready) namLoadCab(document.getElementById('namCab').value).catch(e => namStatus('erreur baffle', 'err'));
+});
+['namVol','namIn'].forEach(id => document.getElementById(id).addEventListener('input', namApply));
+document.getElementById('namFileBtn').addEventListener('click', () => document.getElementById('namFile').click());
+document.getElementById('namFile').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const json = await f.text();
+  try{ JSON.parse(json); }catch(err){ namStatus('fichier .nam invalide', 'err'); return; }
+  if (nam.ready && !nam.on) nam.on = true;
+  await namActivate(json, f.name.replace(/\.nam$/i, ''));
 });
 
 /* ---------- Manche de guitare virtuel (SVG) ---------- */

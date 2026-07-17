@@ -11,9 +11,12 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-180.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<!-- Isolation cross-origin (SharedArrayBuffer pour l'ampli neuronal NAM).
+     Sur GitHub Pages, ce service worker injecte les en-têtes COOP/COEP. -->
+<script src="coi-serviceworker.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
 <title>Coach Guitare IA</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -101,6 +104,45 @@
       <button class="btn primary" id="metroBtn">▶ Démarrer</button>
       <span class="chip now" id="metroBeatEl" style="min-width:80px; text-align:center">Temps —</span>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>🧠 Ampli neuronal (NAM)</h2>
+    <p class="hint" style="margin-top:0">De <b>vrais amplis capturés par réseau de neurones</b> (Neural Amp Modeler) : le son est incomparablement plus réaliste que l'ampli classique. Écouteurs obligatoires si tu utilises le micro du téléphone (sinon larsen).</p>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="namToggle">🧠 Activer l'ampli neuronal</button>
+      <span class="chip" id="namStatus">inactif</span>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label style="flex:1">Ampli
+        <select id="namModel" style="width:100%; margin-top:5px">
+          <option value="nam/models/deluxe.nam">Fender Deluxe — clean vintage</option>
+          <option value="nam/models/jc.nam">Roland JC-120 — ultra clean</option>
+          <option value="nam/models/ac10.nam">Vox AC10 — chime british</option>
+          <option value="nam/models/dumble.nam">Dumble — lead boutique</option>
+          <option value="nam/models/jcm.nam">Marshall JCM — crunch rock</option>
+          <option value="nam/models/5153.nam">EVH 5150 III — high-gain métal</option>
+          <option value="nam/models/ampeg.nam">Ampeg — basse</option>
+        </select>
+      </label>
+      <label style="flex:1">Baffle
+        <select id="namCab" style="width:100%; margin-top:5px">
+          <option value="nam/irs/celestion.wav">Celestion 4x12</option>
+          <option value="nam/irs/mesa.wav">Mesa</option>
+          <option value="nam/irs/eminence.wav">Eminence</option>
+          <option value="">Sans baffle (direct)</option>
+        </select>
+      </label>
+    </div>
+    <div class="sliders grid">
+      <label>Gain d'entrée <input type="range" id="namIn" min="0" max="100" value="50"></label>
+      <label>Volume <input type="range" id="namVol" min="0" max="100" value="70"></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" id="namFileBtn">📂 Charger un ampli .nam (TONE3000)</button>
+      <input type="file" id="namFile" accept=".nam,application/json" style="display:none">
+    </div>
+    <p class="hint">Plus de 200 000 amplis gratuits sur <b>tone3000.com</b> : télécharge un fichier .nam et ouvre-le ici. Le noise gate du pédalier s'applique aussi à l'ampli neuronal. Activer l'un éteint l'autre.</p>
   </div>
 
   <div class="card">
