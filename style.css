@@ -27,6 +27,7 @@ body{background:var(--bg); color:var(--text); min-height:100vh;
 ::selection{background:var(--accent-dim);}
 /* Halo décoratif : lever de soleil orangé + brume violette + touche menthe */
 body::before{content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  transform:translateZ(0); /* couche compositeur dédiée : pas de repaint au scroll (fluidité iOS) */
   background:
     radial-gradient(760px 480px at 8% -8%, rgba(246,169,44,.16), transparent 68%),
     radial-gradient(680px 460px at 104% 0%, rgba(139,92,246,.10), transparent 70%),
@@ -301,7 +302,9 @@ th{color:var(--faint); font-weight:600; font-size:.72rem; text-transform:upperca
        padding:10px 20px; font-weight:600; font-size:.9rem; transition:transform .35s cubic-bezier(.34,1.56,.64,1);
        box-shadow:0 12px 32px rgba(43,35,23,.35); pointer-events:none; max-width:90vw;}
 #toast.show{transform:translateX(-50%) translateY(0);}
-#confettiCv{position:fixed; inset:0; z-index:55; pointer-events:none;}
+/* Masqué hors animation : un canvas plein écran permanent provoque des
+   éclats noirs au scroll sur iOS (bug de compositing Safari) */
+#confettiCv{position:fixed; inset:0; z-index:55; pointer-events:none; display:none;}
 #overlay{position:fixed; inset:0; background:rgba(250,246,238,.94); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
          display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; z-index:50; text-align:center; padding:24px;}
 #overlay h2{font-size:1.6rem; font-weight:700; letter-spacing:-.02em;}

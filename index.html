@@ -114,15 +114,37 @@
       <span class="chip" id="namStatus">inactif</span>
     </div>
     <div class="row" style="margin-top:12px">
+      <label style="flex:1">🎵 Rig complet — prêt à jouer
+        <select id="namRig" style="width:100%; margin-top:5px"><option value="">— Choisis un son de légende —</option></select>
+      </label>
+    </div>
+    <div class="row" style="margin-top:12px">
       <label style="flex:1">Ampli
         <select id="namModel" style="width:100%; margin-top:5px">
-          <option value="nam/models/deluxe.nam">Fender Deluxe — clean vintage</option>
-          <option value="nam/models/jc.nam">Roland JC-120 — ultra clean</option>
-          <option value="nam/models/ac10.nam">Vox AC10 — chime british</option>
-          <option value="nam/models/dumble.nam">Dumble — lead boutique</option>
-          <option value="nam/models/jcm.nam">Marshall JCM — crunch rock</option>
-          <option value="nam/models/5153.nam">EVH 5150 III — high-gain métal</option>
-          <option value="nam/models/ampeg.nam">Ampeg — basse</option>
+          <optgroup label="Clean">
+            <option value="nam/models/twin.nam">Fender Twin Reverb — LE clean américain</option>
+            <option value="nam/models/deluxe.nam">Fender Deluxe — clean vintage</option>
+            <option value="nam/models/jc.nam">Roland JC-120 — ultra clean</option>
+            <option value="nam/models/jcm2000-clean.nam">Marshall JCM2000 — clean british</option>
+          </optgroup>
+          <optgroup label="Crunch & rock">
+            <option value="nam/models/ac10.nam">Vox AC10 — chime british</option>
+            <option value="nam/models/ac15.nam">Vox AC15 Top Boost — Beatles/Queen</option>
+            <option value="nam/models/jcm.nam">Marshall JCM — crunch rock</option>
+            <option value="nam/models/jcm2000-crunch.nam">Marshall JCM2000 — crunch AC/DC</option>
+            <option value="nam/models/orange.nam">Orange Rockerverb — stoner/indie</option>
+          </optgroup>
+          <optgroup label="Lead & high-gain">
+            <option value="nam/models/dumble.nam">Dumble — lead boutique</option>
+            <option value="nam/models/soldano.nam">Soldano SLO — hair metal</option>
+            <option value="nam/models/5153.nam">EVH 5150 III — high-gain</option>
+            <option value="nam/models/5150-boost.nam">Peavey 5150 boosté — thrash</option>
+            <option value="nam/models/6505-red.nam">Peavey 6505+ — métal moderne</option>
+            <option value="nam/models/mesa-mark4.nam">Mesa Mark IV — Metallica</option>
+          </optgroup>
+          <optgroup label="Basse">
+            <option value="nam/models/ampeg.nam">Ampeg — basse</option>
+          </optgroup>
         </select>
       </label>
       <label style="flex:1">Baffle

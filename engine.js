@@ -85,6 +85,13 @@ function processFrame(){
     }
   }
   if (++diagTick % 45 === 0) updateDiag(rms);
+  // Garde-fou « analyse morte » : si iOS a interrompu un des contextes
+  // (typique en web-app installée quand l'ampli neuronal démarre), on
+  // retente une reprise chaque seconde jusqu'à ce que ça reparte.
+  if (diagTick % 90 === 0){
+    if (micOn && audioCtx.state !== 'running' && audioCtx.state !== 'closed') audioCtx.resume().catch(()=>{});
+    if (nam.on && nam.ctx && nam.ctx.state !== 'running' && nam.ctx.state !== 'closed') nam.ctx.resume().catch(()=>{});
+  }
   // Garde-fou anti-silence (bug Safari de fréquence d'échantillonnage)
   if (rms === 0 && micHealthy()) zeroFrames++; else zeroFrames = 0;
   if (zeroFrames === 270 && !rateFixTried){
@@ -132,9 +139,12 @@ async function ensureContext(desiredRate){
   catch(e){ audioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive'}); }
   return audioCtx;
 }
+// Tout toucher relance les contextes non actifs. iOS peut les mettre en
+// 'suspended' MAIS AUSSI dans l'état non standard 'interrupted' (quand deux
+// contextes se partagent la session audio, ou en web-app installée).
 ['touchend','click'].forEach(evName => document.addEventListener(evName, () => {
-  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-  if (nam.ctx && nam.ctx.state === 'suspended') nam.ctx.resume();
+  if (audioCtx && audioCtx.state !== 'running' && audioCtx.state !== 'closed') audioCtx.resume().catch(()=>{});
+  if (nam.ctx && nam.ctx.state !== 'running' && nam.ctx.state !== 'closed') nam.ctx.resume().catch(()=>{});
 }, {passive:true}));
 
 async function startMic(){
@@ -251,7 +261,12 @@ function updateDiag(rms){
   if (audioCtx && audioCtx.state !== 'running'){ el.textContent = '⚠️ Audio en pause — touche l\'écran pour relancer.'; return; }
   const niveau = Math.min(100, Math.round(rms*600));
   const seuil = Math.min(100, Math.round(RMS_THRESHOLD*600));
+  // Mesure de latence réelle : tampon de rendu + sortie matérielle, aller simple.
+  // (L'aller-retour complet ajoute la latence d'entrée, non mesurable, ~+10 ms.)
+  const ctxRef = (nam.on && nam.ctx) ? nam.ctx : audioCtx;
+  const latMs = Math.round(((ctxRef.baseLatency || 0) + (ctxRef.outputLatency || 0)) * 1000);
   el.textContent = `Entrée : ${t.label || 'micro'} @ ${audioCtx.sampleRate} Hz — niveau ${niveau} % / seuil ${seuil} %` +
+    (latMs ? ` — sortie ${latMs} ms${nam.on ? ' (NAM)' : ''}` : '') +
     (rms >= RMS_THRESHOLD ? ' ✓ son détecté' : ' — sous le seuil');
 }
 document.getElementById('overlayBtn').addEventListener('click', startMic);
@@ -321,7 +336,11 @@ const sfx = {
 function confetti(){
   const cv = document.getElementById('confettiCv');
   const ctx2 = cv.getContext('2d');
+  cv.style.display = 'block';
   cv.width = innerWidth; cv.height = innerHeight;
+  // filet de sécurité : cache le canvas même si l'animation est gelée (onglet en fond)
+  clearTimeout(confetti._hide);
+  confetti._hide = setTimeout(() => { cv.style.display = 'none'; cv.width = 1; cv.height = 1; }, 2100);
   const colors = ['#f6a92c','#f97362','#4ade80','#5ba7f7','#a78bfa','#f472b6'];
   const parts = Array.from({length:90}, () => ({
     x: innerWidth/2 + (Math.random()-0.5)*160,
@@ -337,7 +356,7 @@ function confetti(){
   (function tick(now){
     const dt = (now - t0)/1000;
     ctx2.clearRect(0,0,cv.width,cv.height);
-    if (dt > 1.9){ return; }
+    if (dt > 1.9){ cv.style.display = 'none'; cv.width = 1; cv.height = 1; return; }
     parts.forEach(p => {
       p.x += p.vx; p.y += p.vy; p.vy += 0.32; p.r += p.vr;
       ctx2.save(); ctx2.translate(p.x, p.y); ctx2.rotate(p.r);
@@ -758,6 +777,8 @@ async function namActivate(jsonOverride, label){
     }
     nam.on = true;
     nam.ctx.resume().catch(()=>{});
+    // le démarrage du contexte NAM peut interrompre le nôtre (analyse) sur iOS
+    setTimeout(() => { if (audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(()=>{}); }, 400);
     namApply();
     const btn = document.getElementById('namToggle');
     btn.textContent = '🔇 Éteindre l\'ampli neuronal'; btn.classList.add('on');
@@ -793,6 +814,47 @@ document.getElementById('namCab').addEventListener('change', () => {
   if (nam.ready) namLoadCab(document.getElementById('namCab').value).catch(e => namStatus('erreur baffle', 'err'));
 });
 ['namVol','namIn'].forEach(id => document.getElementById(id).addEventListener('input', namApply));
+/* Rigs de légende : ampli + baffle + gains préréglés pour les riffs connus */
+const NAM_RIGS = [
+  {n:'AC/DC – Back in Black', m:'jcm2000-crunch', cab:'celestion', vin:55, vol:70},
+  {n:'Guns N’ Roses – Sweet Child O’ Mine', m:'jcm', cab:'celestion', vin:60, vol:70},
+  {n:'Nirvana – Smells Like Teen Spirit', m:'jcm2000-crunch', cab:'celestion', vin:72, vol:70},
+  {n:'Metallica – Enter Sandman', m:'mesa-mark4', cab:'mesa', vin:65, vol:68},
+  {n:'Metallica – Master of Puppets', m:'5150-boost', cab:'mesa', vin:70, vol:66},
+  {n:'Slipknot / Machine Head — métal moderne', m:'6505-red', cab:'mesa', vin:70, vol:64},
+  {n:'Van Halen – le « brown sound »', m:'5153', cab:'celestion', vin:55, vol:68},
+  {n:'Mötley Crüe — hair metal 80s', m:'soldano', cab:'celestion', vin:60, vol:68},
+  {n:'Queens of the Stone Age — stoner', m:'orange', cab:'celestion', vin:60, vol:68},
+  {n:'Pink Floyd – Comfortably Numb', m:'dumble', cab:'eminence', vin:50, vol:70},
+  {n:'Hendrix – Little Wing', m:'twin', cab:'eminence', vin:45, vol:70},
+  {n:'Beatles / Queen — brit sixties', m:'ac15', cab:'celestion', vin:50, vol:70},
+  {n:'Funk / Nile Rodgers — clean percussif', m:'jc', cab:'', vin:40, vol:70},
+  {n:'Jazz — clean feutré', m:'deluxe', cab:'eminence', vin:35, vol:70}
+];
+(function(){
+  const sel = document.getElementById('namRig');
+  NAM_RIGS.forEach((r, i) => sel.add(new Option(r.n, String(i))));
+  sel.addEventListener('change', async () => {
+    if (sel.value === '') return;
+    const r = NAM_RIGS[parseInt(sel.value)];
+    document.getElementById('namModel').value = 'nam/models/' + r.m + '.nam';
+    document.getElementById('namCab').value = r.cab ? 'nam/irs/' + r.cab + '.wav' : '';
+    document.getElementById('namIn').value = r.vin;
+    document.getElementById('namVol').value = r.vol;
+    if (!nam.ready){ namActivate(null, r.n); return; }
+    if (nam.loading) return;
+    nam.loading = true;
+    namStatus('chargement…', 'now');
+    try{
+      const json = await (await fetch(document.getElementById('namModel').value)).text();
+      await namSetDsp(json);
+      await namLoadCab(document.getElementById('namCab').value);
+      namApply();
+      namStatus(r.n, nam.on ? 'ok' : '');
+    }catch(e){ namStatus('erreur : ' + e.message, 'err'); }
+    nam.loading = false;
+  });
+})();
 document.getElementById('namFileBtn').addEventListener('click', () => document.getElementById('namFile').click());
 document.getElementById('namFile').addEventListener('change', async e => {
   const f = e.target.files[0];
