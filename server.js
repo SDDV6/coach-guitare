@@ -5,7 +5,7 @@ const path = require('path');
 
 const PORT = process.env.PORT || 8765;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png',
-                '.wasm': 'application/wasm', '.nam': 'application/json', '.wav': 'audio/wav' };
+                '.wasm': 'application/wasm', '.nam': 'application/json', '.wav': 'audio/wav', '.woff2': 'font/woff2' };
 
 http.createServer((req, res) => {
   let url = decodeURIComponent(req.url.split('?')[0]);

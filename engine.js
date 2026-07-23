@@ -60,7 +60,7 @@ function autoCorrelate(buf, sampleRate){
 
 let candMidi = null, candCount = 0, currentMidi = null, silenceCount = 0;
 const ANALYSIS_MS = 11, SILENCE_FRAMES = 14;
-let diagTick = 0, zeroFrames = 0, rateFixTried = false, micLevelBarEl = null;
+let diagTick = 0, zeroFrames = 0, rateFixTried = false, micLevelBarEl = null, lastMicRms = 0;
 
 // Niveau (rms) peu coûteux : O(n). À calculer à chaque trame pour un gate réactif.
 function quickRms(buf){
@@ -77,6 +77,7 @@ function processFrame(){
     diagTick++;
 
     const rms = quickRms(timeBuf);
+    lastMicRms = rms; // exposé pour le calibrage du gate
     if (!micLevelBarEl) micLevelBarEl = document.getElementById('micLevelBar');
     if (micLevelBarEl) micLevelBarEl.style.width = Math.min(100, rms*600) + '%';
 
@@ -848,6 +849,28 @@ document.getElementById('namCab').addEventListener('change', () => {
   if (nam.ready) namLoadCab(document.getElementById('namCab').value).catch(e => namStatus('erreur baffle', 'err'));
 });
 ['namVol','namIn','namGate'].forEach(id => document.getElementById(id).addEventListener('input', namApply));
+// Calibrage auto : mesure le bruit de fond réel (ne pas jouer) et règle le
+// gate juste au-dessus — s'adapte à TON matériel plutôt que de deviner.
+async function namCalibrateGate(){
+  if (!micOn){ namStatus('active d\'abord le micro', 'err'); return; }
+  namStatus('mesure du bruit… NE JOUE PAS (2 s)', 'now');
+  let peak = 0;
+  const t0 = performance.now();
+  await new Promise(res => {
+    const iv = setInterval(() => {
+      peak = Math.max(peak, lastMicRms);
+      if (performance.now() - t0 > 2000){ clearInterval(iv); res(); }
+    }, 30);
+  });
+  // seuil = bruit mesuré + 40 % de marge, borné pour rester raisonnable
+  nam.gateThr = Math.min(0.08, Math.max(0.003, peak * 1.4));
+  // reflète approximativement sur le curseur (sans dépasser sa plage douce)
+  const g = Math.round(((nam.gateThr - 0.003) / 0.016) * 100);
+  document.getElementById('namGate').value = Math.max(3, Math.min(100, g));
+  const pct = Math.round(peak * 600);
+  namStatus('gate réglé sur ton bruit (' + pct + ' %) ✓', 'ok');
+}
+document.getElementById('namGateCal').addEventListener('click', namCalibrateGate);
 /* Rigs de légende : ampli + baffle + gains préréglés pour les riffs connus */
 const NAM_RIGS = [
   {n:'AC/DC – Back in Black', m:'jcm2000-crunch', cab:'celestion', vin:55, vol:70},
