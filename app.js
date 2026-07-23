@@ -12,7 +12,7 @@ function defaultProfile(){
   return { v:1, xp:0, notes:0, games:0, earGames:0, dailyDone:0, perfect:0, practiceMs:0,
     days:{}, skills:{}, notions:{}, badges:{}, history:[],
     goals:{date:'', list:[]}, daily:{date:'', id:'', done:false},
-    lessonsRead:{} };
+    lessonsRead:{}, introsSeen:{} };
 }
 function loadProfile(){
   try{
@@ -405,17 +405,27 @@ function continueLearning(){
 /* ---------- Parcours ---------- */
 function renderPath(){
   const cur = currentStepIndex();
-  document.getElementById('pathRoot').innerHTML = `<div class="card"><div class="path">` +
-    PATH.map((st, i) => {
+  let html = '<div class="pathmap">';
+  PATH_UNITS.forEach((unit, ui) => {
+    const chapters = unit.ids.map(id => PATH.find(p => p.id === id)).filter(Boolean);
+    const um = Math.round(chapters.reduce((a,c) => a + mastery(c.id), 0) / chapters.length);
+    html += `<div class="unit-head"><span class="unit-badge">Unité ${ui+1}</span><b>${unit.name}</b><span class="unit-pct">${um}%</span></div>`;
+    html += `<div class="unit-line">`;
+    chapters.forEach(st => {
+      const i = PATH.indexOf(st);
       const m = mastery(st.id);
       const unlocked = stepUnlocked(i);
       const cls = !unlocked ? 'locked' : (m >= 80 ? 'done' : (i === cur ? 'current' : ''));
-      return `<div class="pnode ${cls}" onclick="${unlocked ? `openStep('${st.id}')` : `lockedMsg(${i})`}">
-        <div class="dot">${m >= 80 ? '✓' : st.icon}</div>
-        <div class="pinfo"><b>${st.name}</b><small>${st.desc}</small></div>
-        <span class="ppct">${unlocked ? m + '%' : '🔒'}</span>
+      const face = !unlocked ? '🔒' : (m >= 80 ? '✓' : st.icon);
+      html += `<div class="lvl ${cls}" onclick="${unlocked ? `openStep('${st.id}')` : `lockedMsg(${i})`}">
+        <div class="bub">${face}${(cls==='current') ? '<span class="startpop">ICI</span>' : ''}</div>
+        <div class="cap"><b>${st.name}</b><small>${unlocked ? m + '%' : 'verrouillé'}</small></div>
       </div>`;
-    }).join('') + `</div></div>`;
+    });
+    html += `</div>`;
+  });
+  html += '</div>';
+  document.getElementById('pathRoot').innerHTML = html;
 }
 function lockedMsg(i){
   sfx.err();
@@ -456,7 +466,7 @@ function openLesson(stepId, li){
     ${l.dg && DG[l.dg] ? `<div class="diagram">${DG[l.dg]()}</div>` : ''}
     ${l.sh ? (() => { const s = SHAPES.find(x => x.n === l.sh); return s ? `<div class="diagram">${DG.chordbox(s, true)}<div class="hint" style="text-align:center; margin-top:4px">${s.n}</div></div>` : ''; })() : ''}
     <div class="row" style="margin-top:16px">
-      ${l.try && GAMES[l.try] ? `<button class="btn primary big" style="flex:1" onclick="closeSheet(); startGame('${l.try}')">▶ Essaie maintenant : ${GAMES[l.try].name}</button>` : ''}
+      ${l.try && GAMES[l.try] ? `<button class="btn primary big" style="flex:1" onclick="closeSheet(); startGame('${l.try}', {skipIntro:true})">▶ Essaie maintenant : ${GAMES[l.try].name}</button>` : ''}
     </div>
     <div class="row" style="margin-top:10px">
       <button class="btn big" style="flex:1" onclick="markLesson('${stepId}',${li})">${read ? 'Relu ✓' : '✓ J\'ai compris (+5 XP)'}</button>
@@ -565,6 +575,29 @@ function startGame(id, opts = {}){
     timeLeft: def.timer || null, timerH:null, q:null, waiting:false, simonSeq:[], improv:null});
   document.getElementById('gameView').classList.add('open');
   document.getElementById('gvBar').style.width = '0%';
+  document.getElementById('gvInfo').textContent = '';
+  // Mini-cours avant l'exercice (sauf si on arrive juste après une leçon)
+  if (opts.skipIntro) beginGameRounds();
+  else showGameIntro();
+}
+// Écran d'intro pédagogique : explique la notion, puis « Commencer »
+function showGameIntro(){
+  const def = GV.def;
+  const intro = SKILL_INTRO[def.skill];
+  const chap = PATH.find(p => p.id === def.skill);
+  const full = intro && !(P.introsSeen && P.introsSeen[def.skill]); // version complète la 1re fois
+  gvFoot().innerHTML = '';
+  gvBody().innerHTML = `<div class="gv-intro">
+    <div class="intro-icon">${chap ? chap.icon : (def.icon || '🎯')}</div>
+    <div class="gv-q">${intro ? intro.title : def.name}</div>
+    ${full ? `<p class="intro-txt">${intro.txt}</p>${intro.dg && DG[intro.dg] ? `<div class="diagram">${DG[intro.dg]()}</div>` : ''}` : ''}
+    <div class="intro-task"><b>🎯 Ton défi :</b> ${def.desc}</div>
+  </div>`;
+  gvFoot().innerHTML = `<button class="btn primary big" style="flex:1" onclick="sfx.tap(); beginGameRounds()">▶ Commencer</button>`;
+  if (intro){ P.introsSeen = P.introsSeen || {}; P.introsSeen[def.skill] = 1; save(); }
+}
+function beginGameRounds(){
+  const def = GV.def;
   if (def.timer){
     GV.timerH = setInterval(() => {
       GV.timeLeft--;

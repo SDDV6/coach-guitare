@@ -371,6 +371,40 @@ const PATH = [
   games:['exam','simon','improv'], badge:{icon:'👑', name:'Maître du manche'}}
 ];
 
+/* ============ Unités du parcours (carte façon Duolingo) ============ */
+const PATH_UNITS = [
+  {name:'Fondamentaux',           ids:['discover','diagrams','fingerstyle','fretboard']},
+  {name:'Intervalles & accords',  ids:['intervals','chordconst','triads','chords7']},
+  {name:'Harmonie jazz',          ids:['shell','extensions','subs','voicelead']},
+  {name:'Voicings',               ids:['drop2','drop3','openv','quartal']},
+  {name:'Analyse & maîtrise',     ids:['analysis','reharm','improv','mastery']}
+];
+
+/* ============ Intros de concept (mini-cours avant chaque exercice) ============
+   Court, digeste : de quoi comprendre la notion AVANT de jouer. */
+const SKILL_INTRO = {
+  discover:    {title:'Le manche, mode d\'emploi', txt:'Il n\'existe que <b>12 notes</b> qui tournent en boucle. Sur la guitare, <b>chaque case = 1 demi-ton</b>, et à la case 12 tout recommence une octave plus haut. Avant de jouer vite, il faut savoir <b>où</b> est chaque note.'},
+  diagrams:    {title:'Lire un diagramme d\'accord', txt:'Un diagramme se lit à la verticale : les traits = les cordes, les points = où poser les doigts. En haut : <b>✕ = corde muette</b>, <b>○ = corde à vide</b>. La <b>fondamentale</b> (en orange) donne le nom de l\'accord.'},
+  fingerstyle: {title:'La main droite : P·I·M·A', txt:'<b>P</b>ouce pour les cordes graves, <b>I</b>ndex·<b>M</b>ajeur·<b>A</b>nnulaire pour les aiguës. Chaque doigt a « sa » corde : la main bouge à peine, seuls les doigts travaillent.'},
+  fretboard:   {title:'Trouver n\'importe quelle note', txt:'Les cordes à vide : <b>Mi La Ré Sol Si Mi</b>. À partir d\'elles tu comptes les cases (1 case = 1 demi-ton). Les repères sont aux cases <b>3, 5, 7, 9 et 12</b>.'},
+  intervals:   {title:'La distance entre deux notes', txt:'Un intervalle = un nombre de cases. Tierce mineure = <b>3</b>, tierce majeure = <b>4</b>, quinte = <b>7</b>, octave = <b>12</b>. C\'est le vocabulaire de toutes les mélodies et de tous les accords.', dg:'intervals'},
+  chordconst:  {title:'Comment se fabrique un accord', txt:'On empile des tierces sur une fondamentale : <b>1, 3, 5</b>. Chaque note est nommée par son degré. Cette écriture chiffrée est le langage de toute l\'harmonie.', dg:'triad'},
+  triads:      {title:'Majeur ou mineur ?', txt:'Une triade = 3 notes : fondamentale, tierce, quinte. <b>Seule la tierce décide</b> : majeure (4 cases) = joyeux, mineure (3 cases) = mélancolique.'},
+  chords7:     {title:'La 4e note qui change tout', txt:'Ajoute une tierce de plus : <b>1-3-5-7</b>. Quatre couleurs : <b>maj7</b> (doux), <b>m7</b> (soul), <b>7</b> (bluesy, instable), <b>m7♭5</b> (tendu). C\'est le son du jazz et du blues.'},
+  shell:       {title:'Le squelette de l\'accord', txt:'En jazz, on garde souvent juste <b>1, 3 et 7</b> (on jette la quinte). Ces « notes guides » suffisent à faire sonner l\'accord — petit, mobile, immédiatement pro.'},
+  extensions:  {title:'Les étages du dessus', txt:'Après la 7e, on continue : <b>9, 11, 13</b>. Ce sont les épices qui colorent l\'accord sans changer sa fonction. Attention : la 11 juste frotte sur un accord majeur.'},
+  subs:        {title:'Remplacer un accord', txt:'Deux accords qui partagent des notes peuvent s\'échanger (<b>I ↔ vi</b>). Et tout accord 7 peut être remplacé par le 7 situé à un <b>triton</b> : la fameuse substitution tritonique.'},
+  voicelead:   {title:'Enchaîner sans sauter', txt:'Chaque note d\'un accord est une « voix ». Le secret : <b>bouger chaque voix le moins possible</b>. Dans un ii-V-I, la 7e descend d\'un demi-ton vers la tierce du suivant.', dg:'voicelead'},
+  drop2:       {title:'Le voicing le plus joué', txt:'Prends un accord de 7e serré et descends la <b>2e voix</b> d\'une octave : voilà un <b>drop 2</b>. Il tombe pile sur 4 cordes voisines. Confortable et jouable partout.'},
+  drop3:       {title:'La basse qui saute une corde', txt:'Cette fois on descend la <b>3e voix</b>. Résultat : une basse isolée, une corde muette, puis 3 notes serrées. Un son large, parfait pour jouer seul.'},
+  openv:        {title:'Aérer l\'accord', txt:'Un voicing <b>ouvert</b> écarte les voix au-delà de l\'octave : chaque note respire, ça sonne comme un piano. Règle d\'or : <b>graves espacés, aigus resserrés</b>.'},
+  quartal:     {title:'Empiler des quartes', txt:'Au lieu de tierces, on empile des <b>quartes</b> (5 cases). Résultat : un son flottant, moderne, ni majeur ni mineur — le fameux « So What chord » de Miles Davis.'},
+  analysis:    {title:'Comprendre ce qu\'on entend', txt:'Les 7 accords d\'une tonalité, les cadences (<b>V → I</b> = repos), le cercle des quintes. Les outils pour décoder n\'importe quelle chanson.', dg:'degrees'},
+  reharm:      {title:'Réécrire les accords', txt:'Réharmoniser = garder la mélodie, changer les accords dessous. Tes outils : substitutions, ii-V insérés, dominantes secondaires. Seule règle : l\'accord doit <b>tolérer la note de mélodie</b>.'},
+  improv:      {title:'Jouer TES phrases', txt:'Gammes, pentatoniques, modes : ta boîte à outils. Le secret n\'est pas de jouer plein de notes, mais des <b>phrases avec des silences</b>, en visant les notes de l\'accord.', dg:'formula'},
+  mastery:     {title:'L\'examen final', txt:'Tout le parcours, mélangé, sans filet. 20 questions, guitare en main et à l\'oreille. <b>80 % = la couronne.</b>'}
+};
+
 /* ============ Badges ============ */
 const BADGES = [
   {id:'first',   icon:'🎵', name:'Première note',    desc:'Jouer ta première note détectée'},

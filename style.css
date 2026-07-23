@@ -142,28 +142,52 @@ input[type=range]::-moz-range-thumb{width:15px; height:15px; border-radius:50%; 
 .dash-top{display:grid; grid-template-columns:1fr auto; gap:14px; align-items:stretch;}
 @media (max-width:640px){ .dash-top{grid-template-columns:1fr;} }
 
-/* ============ Parcours (arbre) ============ */
-.path{position:relative; padding:6px 0 6px 34px;}
-.path::before{content:''; position:absolute; left:33px; top:20px; bottom:20px; width:3px;
-              background:linear-gradient(180deg,#f6a92c33,var(--surface3)); border-radius:2px;}
-.pnode{position:relative; display:flex; gap:16px; align-items:center; padding:12px 12px 12px 0;
-       margin-left:-34px; border-radius:14px; cursor:pointer; transition:background .15s, transform .12s;}
-.pnode:active{transform:scale(.985);}
-@media (hover:hover){ .pnode:hover{background:rgba(255,255,255,.85);} }
-.pnode .dot{position:relative; z-index:1; width:58px; height:58px; border-radius:50%; flex-shrink:0;
-            display:flex; align-items:center; justify-content:center; font-size:1.5rem;
-            background:#fff; border:3px solid var(--surface3); transition:all .3s; box-shadow:var(--shadow-sm);}
-.pnode.done .dot{background:linear-gradient(160deg,#eafaf0,#dcf5e6); border-color:var(--ok);}
-.pnode.current .dot{background:linear-gradient(160deg,#fff6e4,#ffedd2); border-color:var(--accent);
-                    box-shadow:0 0 0 6px rgba(232,137,12,.12); animation:pulse 2.4s infinite;}
-@keyframes pulse{0%,100%{box-shadow:0 0 0 5px rgba(232,137,12,.11);} 50%{box-shadow:0 0 0 11px rgba(232,137,12,.05);}}
-.pnode.locked{opacity:.5; filter:saturate(.4);}
-.pnode .pinfo{flex:1; min-width:0;}
-.pnode .pinfo b{display:block; font-size:.98rem;}
-.pnode .pinfo small{color:var(--muted); font-size:.8rem;}
-.pnode .ppct{font-weight:700; font-family:'Space Grotesk'; color:var(--muted); font-size:.9rem; flex-shrink:0;}
-.pnode.done .ppct{color:var(--ok);}
-.pnode.current .ppct{color:#c26e04;}
+/* ============ Parcours — carte façon Duolingo ============ */
+.pathmap{padding:4px 0 24px;}
+.unit-head{display:flex; align-items:center; gap:10px; margin:26px 4px 16px;}
+.unit-head:first-child{margin-top:6px;}
+.unit-head .unit-badge{font-size:.6rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+      color:#fff; background:var(--grad); padding:4px 10px; border-radius:999px;}
+.unit-head b{font-size:1.06rem; letter-spacing:-.01em;}
+.unit-head .unit-pct{margin-left:auto; font-family:'Space Grotesk'; font-weight:700; color:var(--muted); font-size:.9rem;}
+.unit-line{position:relative; display:flex; flex-direction:column; align-items:center; gap:10px;}
+.lvl{position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer;
+     padding:4px 0; transition:transform .12s;}
+.lvl:active{transform:scale(.92);}
+/* Serpentin : chaque niveau décalé pour donner l'allure d'un chemin */
+.unit-line .lvl:nth-child(1){transform:translateX(-64px);}
+.unit-line .lvl:nth-child(2){transform:translateX(-22px);}
+.unit-line .lvl:nth-child(3){transform:translateX(22px);}
+.unit-line .lvl:nth-child(4){transform:translateX(64px);}
+.unit-line .lvl:nth-child(1):active,.unit-line .lvl:nth-child(2):active,
+.unit-line .lvl:nth-child(3):active,.unit-line .lvl:nth-child(4):active{transform:scale(.92);}
+.lvl .bub{position:relative; width:66px; height:66px; border-radius:50%; display:flex; align-items:center;
+     justify-content:center; font-size:1.7rem; background:#fff; border:3px solid var(--border2);
+     box-shadow:0 5px 0 var(--border2); transition:transform .1s, box-shadow .1s;}
+.lvl:active .bub{transform:translateY(4px); box-shadow:0 1px 0 var(--border2);}
+.lvl.done .bub{background:linear-gradient(160deg,#eafaf0,#dcf5e6); border-color:var(--ok);
+     box-shadow:0 5px 0 rgba(31,164,86,.45); color:#12703a;}
+.lvl.current .bub{background:linear-gradient(160deg,#fff6e4,#ffe6bf); border-color:var(--accent);
+     box-shadow:0 5px 0 rgba(232,137,12,.5), 0 0 0 6px rgba(232,137,12,.13); animation:bob 1.8s ease-in-out infinite;}
+@keyframes bob{0%,100%{margin-top:0;} 50%{margin-top:-5px;}}
+.lvl.locked{cursor:default;}
+.lvl.locked .bub{background:var(--surface2); border-color:var(--border2); box-shadow:0 5px 0 var(--border2);
+     filter:grayscale(.5); opacity:.6; font-size:1.3rem;}
+.lvl .cap{text-align:center; max-width:132px;}
+.lvl .cap b{font-size:.82rem; display:block; line-height:1.15;}
+.lvl .cap small{font-size:.7rem; color:var(--muted);}
+.lvl.current .cap small{color:#c26e04; font-weight:700;}
+.lvl.done .cap small{color:var(--ok); font-weight:600;}
+.lvl .startpop{position:absolute; top:-26px; left:50%; transform:translateX(-50%); background:var(--accent);
+     color:#4a2a00; font-size:.58rem; font-weight:800; letter-spacing:.06em; padding:3px 9px; border-radius:8px; white-space:nowrap;}
+.lvl .startpop::after{content:''; position:absolute; bottom:-3px; left:50%; transform:translateX(-50%) rotate(45deg); width:7px; height:7px; background:var(--accent);}
+/* Écran d'intro d'un exercice (mini-cours) */
+.gv-intro{display:flex; flex-direction:column; align-items:center; gap:14px; max-width:540px; margin:0 auto;}
+.gv-intro .intro-icon{font-size:3rem; line-height:1;}
+.gv-intro .intro-txt{color:var(--muted); line-height:1.7; font-size:.95rem; text-align:center;}
+.gv-intro .intro-task{background:var(--accent-dim); border:1px solid rgba(232,137,12,.28); border-radius:12px;
+     padding:12px 16px; font-size:.92rem; line-height:1.5;}
+.gv-intro .intro-task b{color:#c26e04;}
 
 /* ============ Hub de jeux ============ */
 .gsec{margin-bottom:22px;}
