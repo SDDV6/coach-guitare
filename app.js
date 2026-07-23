@@ -12,7 +12,7 @@ function defaultProfile(){
   return { v:1, xp:0, notes:0, games:0, earGames:0, dailyDone:0, perfect:0, practiceMs:0,
     days:{}, skills:{}, notions:{}, badges:{}, history:[],
     goals:{date:'', list:[]}, daily:{date:'', id:'', done:false},
-    lessonsRead:{}, introsSeen:{} };
+    lessonsRead:{}, introsSeen:{}, reg:{}, msDays:{} };
 }
 function loadProfile(){
   try{
@@ -120,17 +120,47 @@ function currentStepIndex(){
   }
   return PATH.length - 1;
 }
-function recordAnswer(skill, notion, ok){
-  P.skills[skill] = P.skills[skill] || {ok:0, bad:0};
-  P.skills[skill][ok?'ok':'bad']++;
+/* ---------- Modèle adaptatif : précision + vitesse + confusions ---------- */
+function median(a){ if (!a || !a.length) return 0; const s = [...a].sort((x,y)=>x-y); const m = s.length>>1; return s.length%2 ? s[m] : Math.round((s[m-1]+s[m])/2); }
+// Force d'une notion sur 100 : combine justesse, vitesse et volume (confiance)
+function notionStrength(n){
+  const tot = n.ok + n.bad; if (!tot) return 0;
+  const acc = n.ok/tot;
+  const vol = Math.min(1, tot/6);              // <6 essais = pas encore sûr
+  const med = median(n.ms || []);
+  const speed = !med ? 1 : Math.max(0.65, Math.min(1, 4000/med)); // lent → pénalise un peu
+  return Math.round(100 * acc * vol * speed);
+}
+function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// Cœur de l'enregistrement : justesse + temps de réponse (ms) + extra (confusion, registre)
+function recordResult(skill, notion, ok, ms, extra){
+  if (skill){ P.skills[skill] = P.skills[skill] || {ok:0, bad:0}; P.skills[skill][ok?'ok':'bad']++; }
   if (notion){
-    const n = P.notions[notion] = P.notions[notion] || {ok:0, bad:0, int:0, due:0};
+    const n = P.notions[notion] = P.notions[notion] || {ok:0, bad:0, int:0, due:0, ms:[], conf:{}};
+    n.ms = n.ms || []; n.conf = n.conf || {};
     n[ok?'ok':'bad']++;
-    if (ok){ n.int = n.int ? Math.min(60, Math.round(n.int*2.5)) : 1; n.due = Date.now() + n.int*DAY; }
-    else { n.int = 0; n.due = Date.now(); }
+    if (ms && ms > 200 && ms < 60000){ n.ms.push(ms); if (n.ms.length > 8) n.ms.shift(); }
+    if (ok){
+      // répétition espacée pondérée par la vitesse : si tu es lent, ça revient plus tôt
+      const grow = (ms && median(n.ms) > 5000) ? 1.6 : 2.5;
+      n.int = n.int ? Math.min(60, Math.round(n.int*grow)) : 1;
+      n.due = Date.now() + n.int*DAY;
+    } else {
+      n.int = 0; n.due = Date.now();
+      if (extra && extra.conf) n.conf[extra.conf] = (n.conf[extra.conf]||0) + 1;
+    }
+  }
+  // temps de réponse moyen du jour (pour la courbe de progression)
+  if (ms && ms > 200 && ms < 60000){
+    const k = todayKey();
+    P.msDays = P.msDays || {};
+    const d = P.msDays[k] = P.msDays[k] || {sum:0, n:0};
+    d.sum += ms; d.n++;
   }
   save();
 }
+function recordAnswer(skill, notion, ok){ recordResult(skill, notion, ok, 0, null); }
 function dueNotions(){
   const now = Date.now();
   return Object.entries(P.notions)
@@ -156,32 +186,51 @@ function notionLabel(key){
   return map[key] || key;
 }
 
-/* ---------- Coach (moteur de règles) ---------- */
+/* ---------- Coach intelligent : analyse le profil ---------- */
+// Renvoie des « insights » typés, triés par priorité pédagogique.
+function coachAnalysis(){
+  const ins = [];
+  const ns = Object.entries(P.notions).filter(([k,n]) => (n.ok+n.bad) >= 3);
+  // 1. Confusion récurrente (QCM) — le plus parlant : « tu confonds X et Y »
+  let bestConf = null;
+  ns.forEach(([k,n]) => { for (const c in (n.conf||{})){ if (n.conf[c] >= 2 && (!bestConf || n.conf[c] > bestConf.count)) bestConf = {k, c, count:n.conf[c]}; } });
+  if (bestConf){ const p = bestConf.c.split('||');
+    ins.push({type:'conf', icon:'🔀', notion:bestConf.k, txt:`Tu confonds souvent <b>${p[1]}</b> et <b>${p[0]}</b> — c'est ta priorité du moment.`}); }
+  // 2. Point faible (force la plus basse, hors notion déjà citée en confusion)
+  const weak = ns.map(([k,n]) => ({k, s:notionStrength(n)}))
+    .filter(x => x.s < 55 && (!bestConf || x.k !== bestConf.k)).sort((a,b)=>a.s-b.s);
+  if (weak[0])
+    ins.push({type:'weak', icon:'🎯', notion:weak[0].k, txt:`${cap(notionLabel(weak[0].k))} : ton point faible (force ${weak[0].s}/100). On le muscle en priorité.`});
+  // 3. Lenteur (juste mais tu hésites)
+  const slow = ns.map(([k,n]) => ({k, med:median(n.ms||[]), acc:n.ok/(n.ok+n.bad)})).filter(x => x.acc >= .7 && x.med > 6000).sort((a,b)=>b.med-a.med);
+  if (slow[0]) ins.push({type:'slow', icon:'⏱️', notion:slow[0].k, txt:`${cap(notionLabel(slow[0].k))} : tu trouves, mais tu hésites (${(slow[0].med/1000).toFixed(1)} s). La vitesse viendra en répétant.`});
+  // 4. Point fort
+  const strong = ns.map(([k,n]) => ({k, s:notionStrength(n)})).filter(x => x.s >= 80).sort((a,b)=>b.s-a.s);
+  if (strong[0]) ins.push({type:'strong', icon:'💪', notion:strong[0].k, txt:`${cap(notionLabel(strong[0].k))} : maîtrisé (${strong[0].s}/100). Solide !`});
+  // 5. Registre trop concentré (tu restes au même endroit du manche)
+  const reg = Object.entries(P.reg || {}); const totReg = reg.reduce((a,[,v]) => a+v, 0);
+  if (totReg > 50){ const top = reg.sort((a,b)=>b[1]-a[1])[0]; if (top[1]/totReg > .72)
+    ins.push({type:'reg', icon:'🎸', txt:`Tu joues presque toujours dans le même registre. Explore d'autres octaves du manche pour progresser.`}); }
+  return ins;
+}
 function coachTips(){
-  const tips = [];
-  // 1. notion la plus ratée
-  const worst = Object.entries(P.notions).filter(([k,n]) => n.bad >= 3 && n.bad >= n.ok)
-    .sort((a,b) => (b[1].bad-b[1].ok) - (a[1].bad-a[1].ok))[0];
-  if (worst) tips.push({icon:'🎯', txt:`Tu confonds encore ${notionLabel(worst[0])} — on va les retravailler ensemble.`, notion:worst[0]});
-  // 2. point fort
-  const best = Object.entries(P.notions).filter(([k,n]) => n.ok >= 8 && n.ok/(n.ok+n.bad) >= .85)
-    .sort((a,b) => b[1].ok - a[1].ok)[0];
-  if (best) tips.push({icon:'💪', txt:`${notionLabel(best[0]).charAt(0).toUpperCase()+notionLabel(best[0]).slice(1)} : c'est solide (${Math.round(100*best[1].ok/(best[1].ok+best[1].bad))} % de réussite). Bravo !`});
-  // 3. révisions dues
+  const tips = coachAnalysis().map(i => ({icon:i.icon, txt:i.txt, notion:i.notion}));
   const due = dueNotions();
-  if (due.length) tips.push({icon:'📚', txt:`${due.length} notion${due.length>1?'s':''} à réviser aujourd'hui — 5 minutes suffisent pour les ancrer.`});
-  // 4. encouragement selon la série
+  if (due.length) tips.push({icon:'📚', txt:`${due.length} notion${due.length>1?'s':''} à réviser aujourd'hui — 5 min suffisent pour les ancrer.`});
   const s = streak();
-  if (s >= 3) tips.push({icon:'🔥', txt:`${s} jours d'affilée. La régularité, c'est 80 % du progrès — continue !`});
-  if (!tips.length) tips.push({icon:'🎸', txt:'Joue un premier jeu pour que je puisse analyser ton niveau et te conseiller.'});
+  if (s >= 3) tips.push({icon:'🔥', txt:`${s} jours d'affilée. La régularité, c'est 80 % du progrès !`});
+  if (!tips.length) tips.push({icon:'🎸', txt:'Joue quelques exercices : je vais analyser ton niveau et te dire exactement quoi bosser.'});
   return tips.slice(0, 3);
+}
+// Notions les plus faibles (par force) — moteur des recommandations et révisions
+function weakNotions(){
+  return Object.entries(P.notions).filter(([k,n]) => (n.ok+n.bad) >= 3 && notionStrength(n) < 55)
+    .sort((a,b) => notionStrength(a[1]) - notionStrength(b[1]));
 }
 function recommendedGames(){
   const recs = [];
-  const due = dueNotions();
-  // jeux qui travaillent les notions à réviser / ratées
-  const wanted = new Set(due.slice(0,4).map(([k]) => k));
-  Object.entries(P.notions).forEach(([k,n]) => { if (n.bad >= 3 && n.bad >= n.ok) wanted.add(k); });
+  const wanted = new Set(dueNotions().slice(0,4).map(([k]) => k));
+  weakNotions().slice(0,4).forEach(([k]) => wanted.add(k));
   for (const [id, g] of Object.entries(GAMES)){
     if (recs.length >= 4) break;
     if (id === 'exam' || id === 'daily') continue;
@@ -190,10 +239,26 @@ function recommendedGames(){
       if (sample && sample.notion && [...wanted].some(w => sample.notion.startsWith(w.split('-')[0]))) recs.push(id);
     }catch(e){}
   }
-  // compléter avec les jeux de l'étape en cours
   const cur = PATH[currentStepIndex()];
   cur.games.forEach(id => { if (recs.length < 4 && !recs.includes(id) && GAMES[id]) recs.push(id); });
   return [...new Set(recs)].slice(0, 4);
+}
+// Profil de niveau global (étiquette Débutant → Maître)
+function skillProfile(){
+  const ms = PATH.map(p => mastery(p.id));
+  const mastered = ms.filter(m => m >= 60).length;
+  const avg = Math.round(ms.reduce((a,b)=>a+b,0) / ms.length);
+  let label = 'Grand débutant';
+  if (mastered >= 17) label = 'Maître'; else if (mastered >= 12) label = 'Avancé';
+  else if (mastered >= 7) label = 'Intermédiaire'; else if (mastered >= 3) label = 'Débutant';
+  return {mastered, avg, label, total:ms.length};
+}
+// Temps de réponse moyen (7 derniers jours) + tendance
+function avgResponseTime(){
+  const ks = Object.keys(P.msDays || {}); if (!ks.length) return null;
+  let sum = 0, n = 0;
+  ks.forEach(k => { const d = P.msDays[k]; sum += d.sum; n += d.n; });
+  return n ? Math.round(sum/n) : null;
 }
 
 /* ---------- Objectifs du jour ---------- */
@@ -309,6 +374,24 @@ sheet.addEventListener('click', e => { if (e.target === sheet) sheet.classList.r
 function closeSheet(){ sheet.classList.remove('open'); }
 
 /* ---------- Accueil (dashboard) ---------- */
+// Jours écoulés depuis la dernière vraie session (pour le rappel à l'ouverture)
+function daysSincePractice(){
+  const days = Object.keys(P.days || {}).filter(k => { const d = P.days[k]; return d && (d.xp > 0 || d.notes > 5); });
+  if (!days.length) return null;
+  const last = Math.max(...days.map(k => new Date(k).getTime()));
+  return Math.floor((Date.now() - last) / DAY);
+}
+// Rappel personnalisé : « ça fait X jours, aujourd'hui travaille … »
+function homeReminder(){
+  const d = daysSincePractice();
+  const target = coachAnalysis().find(i => i.notion && i.type !== 'strong');
+  const due = dueNotions();
+  const focus = target ? notionLabel(target.notion) : (due.length ? 'tes révisions du jour' : null);
+  if (d === null) return 'Bienvenue ! Lance ta première leçon pour démarrer ton parcours.';
+  if (d === 0) return focus ? `Aujourd'hui, on cible ${focus}.` : 'Tout est frais dans ta mémoire. En route !';
+  if (d === 1) return 'Content de te revoir ! ' + (focus ? `Aujourd'hui : ${focus}.` : 'On continue le parcours.');
+  return `Ça fait ${d} jours — on s'y remet ! ` + (focus ? `Objectif du jour : ${focus}.` : 'On reprend le parcours.');
+}
 function renderHome(){
   ensureGoals(); ensureDaily();
   const li = levelInfo();
@@ -324,7 +407,7 @@ function renderHome(){
 
   document.getElementById('homeRoot').innerHTML = `
   <div class="hero"><h1>${salut()}, guitariste <em>niveau ${li.lvl}</em></h1>
-    <p>${due.length ? due.length + ' notion' + (due.length>1?'s':'') + ' à réviser aujourd\'hui.' : 'Tout est frais dans ta mémoire. En route !'}</p></div>
+    <p>${homeReminder()}</p></div>
 
   <div class="card tappable appear" onclick="continueLearning()" style="display:flex; align-items:center; gap:18px">
     ${ring(curM, 72, cur.icon)}
@@ -660,10 +743,15 @@ function nextRound(){
   else if (t === 'improv') startImprov(q);
   if (q.play && t === 'mcq') playMelody(q.play, q.gap||0.55);
   if (q.playFirst) playMelody(q.playFirst);
+  // Chrono invisible : départ maintenant, en excluant le temps d'écoute des sons
+  GV.qShownAt = Date.now();
+  if (q.play) GV.qShownAt += q.play.length * (q.gap||0.55) * 1000;
+  if (q.playFirst) GV.qShownAt += q.playFirst.length * 550;
 }
-function answered(ok, xp){
-  recordAnswer(GV.q._skill || GV.def.skill, GV.q.notion, ok);
-  if (ok){ GV.ok++; GV.xp += xp; }
+function answered(ok, xp, extra){
+  const ms = GV.qShownAt ? Math.max(0, Date.now() - GV.qShownAt) : 0;
+  recordResult(GV.q._skill || GV.def.skill, GV.q.notion, ok, ms, extra);
+  if (ok){ GV.ok++; GV.xp += xp; GV.sumMs = (GV.sumMs||0) + ms; GV.nMs = (GV.nMs||0) + 1; }
   else GV.bad++;
 }
 
@@ -681,7 +769,8 @@ function mcqAnswer(i){
   const good = i === GV.q.ans;
   btns[GV.q.ans].classList.add('good');
   if (!good) btns[i].classList.add('bad');
-  answered(good, 2);
+  // confusion = (bonne réponse)||(réponse choisie), pour détecter les erreurs récurrentes
+  answered(good, 2, good ? null : {conf: GV.q.choices[GV.q.ans] + '||' + GV.q.choices[i]});
   gvFeedback(good, good ? rnd(['Exact !','Bien joué !','Parfait !','Oui !']) : '✗ C\'était : ' + GV.q.choices[GV.q.ans]);
   if (!good && GV.lives != null){ GV.lives--; updGvInfo(); if (GV.lives <= 0) return gvLater(endGame, 900); }
   gvLater(nextRound, 1000);
@@ -901,20 +990,29 @@ function endGame(aborted){
   P.history.push({d:Date.now(), name:GV.def.icon + ' ' + GV.def.name, score, xp:gained});
   checkBadge('survivor', GV.def.type === 'survival' && GV.ok >= 15);
   checkAllBadges();
-  // feedback du coach sur CETTE partie
-  let coachLine = '';
-  if (GV.lastErrors && GV.lastErrors.length) coachLine = '';
-  const worstNow = Object.entries(P.notions).filter(([k,n]) => n.bad >= 2 && n.due <= Date.now()).sort((a,b)=>b[1].bad-a[1].bad)[0];
-  if (score >= 90) coachLine = 'Impressionnant. ' + (worstNow ? 'Prochaine cible : ' + notionLabel(worstNow[0]) + '.' : 'Passe à l\'étape suivante du parcours !');
-  else if (score >= 60) coachLine = 'Solide ! ' + (worstNow ? 'Je te reproposerai ' + notionLabel(worstNow[0]) + ' demain pour ancrer.' : 'Encore une session et c\'est acquis.');
-  else coachLine = 'Pas grave — c\'est en ratant qu\'on apprend. On refait la même en plus facile ?';
+  // feedback du coach sur CETTE partie : score + vitesse + prochaine cible
+  const avgMs = GV.nMs ? GV.sumMs/GV.nMs : 0;
+  const nextTarget = coachAnalysis().find(i => i.notion && i.type !== 'strong');
+  let coachLine;
+  if (score >= 90){
+    const fast = avgMs && avgMs < 3000;
+    coachLine = fast ? 'Impressionnant — rapide ET juste. ' : 'Excellent ! ';
+    coachLine += nextTarget ? 'Prochaine cible : ' + notionLabel(nextTarget.notion) + '.' : 'Tu peux passer à l\'étape suivante du parcours.';
+  } else if (score >= 60){
+    coachLine = 'Solide ! ' + (avgMs && avgMs > 6000 ? 'Tu hésites un peu — la vitesse viendra. ' : '') +
+      (nextTarget ? 'Je te reproposerai ' + notionLabel(nextTarget.notion) + ' bientôt.' : 'Encore une session et c\'est ancré.');
+  } else {
+    coachLine = 'Pas grave, c\'est en ratant qu\'on apprend. ' + (nextTarget ? 'On retravaille ' + notionLabel(nextTarget.notion) + ' ?' : 'On refait en plus facile ?');
+  }
   const good = score >= 80 || (isSimon && GV.ok >= 5);
   if (good){ confetti(); sfx.win(); }
+  const speedTxt = avgMs ? `<div class="gv-sub" style="color:var(--faint)">⏱️ ${(avgMs/1000).toFixed(1)} s par réponse en moyenne</div>` : '';
   gvBody().innerHTML = `<div class="gv-end">
     <div class="trophy">${good ? '🏆' : score >= 50 ? '💪' : '🌱'}</div>
     <div class="gv-q">${isSimon ? 'Série de ' + GV.ok + ' tours !' : score + ' % de réussite'}</div>
     <div class="xp-gain" id="gvXp">+0 XP</div>
-    <div class="gv-sub" style="max-width:420px">🧑‍🏫 ${coachLine}</div>
+    ${speedTxt}
+    <div class="gv-sub" style="max-width:440px">🧑‍🏫 ${coachLine}</div>
   </div>`;
   gvFoot().innerHTML = `
     <button class="btn big" style="flex:1" onclick="sfx.tap(); endGame(true)">Terminer</button>
@@ -1034,6 +1132,10 @@ let lastNoteTs = 0, minuteAcc = 0;
 listeners.add(ev => {
   if (ev.type !== 'note') return;
   P.notes++;
+  // Registre joué : histogramme des octaves, pour repérer si tu restes coincé au même endroit
+  P.reg = P.reg || {};
+  const oct = midiOct(ev.midi);
+  P.reg[oct] = (P.reg[oct]||0) + 1;
   const k = todayKey();
   P.days[k] = P.days[k] || {xp:0, notes:0, ms:0};
   P.days[k].notes++;
@@ -1059,12 +1161,17 @@ function renderProfile(){
   Object.values(P.skills).forEach(s => { ok += s.ok; bad += s.bad; });
   const acc = ok+bad ? Math.round(100*ok/(ok+bad)) : 0;
   const mins = Math.round(P.practiceMs/60000);
+  const prof = skillProfile();
+  const art = avgResponseTime();
+  const insights = coachAnalysis();
+  const weak = weakNotions().slice(0, 5);
   document.getElementById('profileRoot').innerHTML = `
   <div class="card appear" style="display:flex; align-items:center; gap:18px">
     ${ring(li.pct, 84, 'Niv ' + li.lvl)}
     <div style="flex:1">
+      <div class="eyebrow">Profil : ${prof.label}</div>
       <b style="font-size:1.15rem">${P.xp} XP</b><br>
-      <small style="color:var(--muted)">${li.into}/${li.need} XP vers le niveau ${li.lvl+1}</small>
+      <small style="color:var(--muted)">${prof.mastered}/${prof.total} chapitres maîtrisés · niveau ${li.lvl+1} dans ${li.need-li.into} XP</small>
       <div class="pbar" style="margin-top:8px"><i style="width:${li.pct}%"></i></div>
     </div>
   </div>
@@ -1073,8 +1180,19 @@ function renderProfile(){
     <div class="stat"><b>${P.notes}</b>notes détectées</div>
     <div class="stat"><b>${P.games}</b>jeux terminés</div>
     <div class="stat"><b>${acc}%</b>précision globale</div>
-    <div class="stat"><b>${mins}</b>min de pratique</div>
+    <div class="stat"><b>${art ? (art/1000).toFixed(1) : '—'}</b>⏱️ s / réponse</div>
     <div class="stat"><b>${totalM}%</b>progression totale</div>
+  </div>
+  <div class="card appear" style="animation-delay:.09s">
+    <h2>🧠 Ce que le coach a repéré</h2>
+    ${insights.length ? insights.map(i => `<div class="coach-tip" style="padding:6px 0"><span class="ava">${i.icon}</span><div style="color:var(--muted); font-size:.9rem; line-height:1.5">${i.txt}</div></div>`).join('') : '<p class="hint" style="margin-top:0">Joue quelques exercices : j\'analyse ta précision, ta vitesse et tes confusions pour te dire quoi bosser.</p>'}
+    ${weak.length ? `<div class="eyebrow" style="margin-top:14px">À revoir en priorité</div>
+      ${weak.map(([k,n]) => `<div style="display:flex; align-items:center; gap:10px; padding:4px 0">
+        <span style="flex:1; font-size:.85rem">${cap(notionLabel(k))}</span>
+        <div class="pbar" style="width:34%; max-width:160px"><i style="width:${notionStrength(n)}%"></i></div>
+        <span style="width:34px; text-align:right; font-size:.78rem; color:var(--muted)">${notionStrength(n)}</span>
+      </div>`).join('')}
+      <div class="row" style="margin-top:12px"><button class="btn primary" onclick="goTab('play')">▶ Travailler mes points faibles</button></div>` : ''}
   </div>
   <div class="card appear" style="animation-delay:.12s">
     <h2>📊 Maîtrise par compétence</h2>
