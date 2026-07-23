@@ -59,67 +59,88 @@ function autoCorrelate(buf, sampleRate){
 }
 
 let candMidi = null, candCount = 0, currentMidi = null, silenceCount = 0;
-// Analyse à ~90 Hz (toutes les 11 ms) au lieu du rythme d'affichage (60 Hz) :
-// la note est confirmée en 11–22 ms au lieu de ~33 ms.
 const ANALYSIS_MS = 11, SILENCE_FRAMES = 14;
-let diagTick = 0, zeroFrames = 0, rateFixTried = false;
+let diagTick = 0, zeroFrames = 0, rateFixTried = false, micLevelBarEl = null;
+
+// Niveau (rms) peu coûteux : O(n). À calculer à chaque trame pour un gate réactif.
+function quickRms(buf){
+  let s = 0;
+  for (let i = 0; i < buf.length; i++){ const v = buf[i]; s += v*v; }
+  return Math.sqrt(s/buf.length);
+}
 
 function processFrame(){
-  if (!analyser) return;
-  analyser.getFloatTimeDomainData(timeBuf);
-  const {freq, rms, clarity} = autoCorrelate(timeBuf, audioCtx.sampleRate);
-  document.getElementById('micLevelBar').style.width = Math.min(100, rms*600) + '%';
-  // Noise gate + auto-wah : pilotés par l'enveloppe mesurée ici (toutes les 11 ms)
-  if (amp && audioCtx.state === 'running'){
-    const tNow = audioCtx.currentTime;
-    if (amp.gateThr > 0){
-      const open = rms > amp.gateThr;
-      amp.gate.gain.setTargetAtTime(open ? 1 : 0, tNow, open ? 0.004 : 0.06);
-      // le même gate protège l'ampli neuronal (contexte audio séparé)
-      if (nam.on && nam.gate && nam.ctx)
-        nam.gate.gain.setTargetAtTime(open ? 1 : 0, nam.ctx.currentTime, open ? 0.004 : 0.06);
+  // Une trame ratée ne doit JAMAIS tuer la boucle audio (anti-crash).
+  try{
+    if (!analyser) return;
+    analyser.getFloatTimeDomainData(timeBuf);
+    diagTick++;
+
+    const rms = quickRms(timeBuf);
+    if (!micLevelBarEl) micLevelBarEl = document.getElementById('micLevelBar');
+    if (micLevelBarEl) micLevelBarEl.style.width = Math.min(100, rms*600) + '%';
+
+    // ----- Noise gates (chaque ampli a le sien, indépendant) -----
+    if (amp && amp.on && audioCtx.state === 'running'){
+      const tNow = audioCtx.currentTime;
+      if (amp.gateThr > 0){
+        const open = rms > amp.gateThr;
+        amp.gate.gain.setTargetAtTime(open ? 1 : 0, tNow, open ? 0.004 : 0.06);
+      }
+      if (amp.wahAmt > 0){
+        wahEnv += (Math.min(1, rms*22) - wahEnv) * 0.35;
+        amp.wahBp.frequency.setTargetAtTime(350 + wahEnv*2800, tNow, 0.03);
+      }
     }
-    if (amp.wahAmt > 0){
-      wahEnv += (Math.min(1, rms*22) - wahEnv) * 0.35;
-      amp.wahBp.frequency.setTargetAtTime(350 + wahEnv*2800, tNow, 0.03);
+    // Gate de l'ampli neuronal : son PROPRE seuil, actif dès qu'il joue —
+    // plus besoin de toucher au gate de l'ampli classique.
+    if (nam.on && nam.gate && nam.gateThr > 0 && nam.ctx && nam.ctx.state === 'running'){
+      const open = rms > nam.gateThr;
+      nam.gate.gain.setTargetAtTime(open ? 1 : 0, nam.ctx.currentTime, open ? 0.004 : 0.08);
     }
-  }
-  if (++diagTick % 45 === 0) updateDiag(rms);
-  // Garde-fou « analyse morte » : si iOS a interrompu un des contextes
-  // (typique en web-app installée quand l'ampli neuronal démarre), on
-  // retente une reprise chaque seconde jusqu'à ce que ça reparte.
-  if (diagTick % 90 === 0){
-    if (micOn && audioCtx.state !== 'running' && audioCtx.state !== 'closed') audioCtx.resume().catch(()=>{});
-    if (nam.on && nam.ctx && nam.ctx.state !== 'running' && nam.ctx.state !== 'closed') nam.ctx.resume().catch(()=>{});
-  }
-  // Garde-fou anti-silence (bug Safari de fréquence d'échantillonnage)
-  if (rms === 0 && micHealthy()) zeroFrames++; else zeroFrames = 0;
-  if (zeroFrames === 270 && !rateFixTried){
-    rateFixTried = true;
-    forceRate = (audioCtx.sampleRate === 48000) ? 44100 : 48000;
-    restartMic();
-  }
-  if (freq > 0 && freq >= 70 && freq <= 1500){
-    silenceCount = 0;
-    const mf = freqToMidiFloat(freq);
-    const midi = Math.round(mf);
-    const cents = Math.round((mf - midi) * 100);
-    emit({type:'pitch', freq, midi, cents});
-    if (midi === candMidi) candCount++;
-    else { candMidi = midi; candCount = 1; }
-    // Détection très nette → on valide dès la 1re trame ; sinon 2 trames
-    const needed = (clarity >= 0.9) ? 1 : 2;
-    if (candCount >= needed && midi !== currentMidi){
-      currentMidi = midi;
-      emit({type:'note', midi, cents});
+
+    if (diagTick % 45 === 0) updateDiag(rms);
+    // Garde-fou « analyse morte » : reprise des contextes interrompus par iOS
+    if (diagTick % 90 === 0){
+      if (micOn && audioCtx.state !== 'running' && audioCtx.state !== 'closed') audioCtx.resume().catch(()=>{});
+      if (nam.on && nam.ctx && nam.ctx.state !== 'running' && nam.ctx.state !== 'closed') nam.ctx.resume().catch(()=>{});
     }
-  } else {
-    silenceCount++;
-    if (silenceCount === SILENCE_FRAMES){
-      currentMidi = null; candMidi = null; candCount = 0;
-      emit({type:'silence'});
+    // Garde-fou anti-silence (bug Safari de fréquence d'échantillonnage)
+    if (rms === 0 && micHealthy()) zeroFrames++; else zeroFrames = 0;
+    if (zeroFrames === 270 && !rateFixTried){
+      rateFixTried = true;
+      forceRate = (audioCtx.sampleRate === 48000) ? 44100 : 48000;
+      restartMic();
     }
-  }
+
+    // ----- Détection de hauteur (coûteuse) -----
+    // Le réseau de neurones du NAM consomme déjà beaucoup de CPU. On espace
+    // alors la détection (30 Hz au lieu de 90 Hz) pour éviter la surcharge
+    // qui faisait planter l'iPhone. Sans NAM : pleine cadence.
+    if (nam.on && diagTick % 3 !== 0) return;
+
+    const {freq, clarity} = autoCorrelate(timeBuf, audioCtx.sampleRate);
+    if (freq > 0 && freq >= 70 && freq <= 1500){
+      silenceCount = 0;
+      const mf = freqToMidiFloat(freq);
+      const midi = Math.round(mf);
+      const cents = Math.round((mf - midi) * 100);
+      emit({type:'pitch', freq, midi, cents});
+      if (midi === candMidi) candCount++;
+      else { candMidi = midi; candCount = 1; }
+      const needed = (clarity >= 0.9) ? 1 : 2;
+      if (candCount >= needed && midi !== currentMidi){
+        currentMidi = midi;
+        emit({type:'note', midi, cents});
+      }
+    } else {
+      silenceCount++;
+      if (silenceCount === SILENCE_FRAMES){
+        currentMidi = null; candMidi = null; candCount = 0;
+        emit({type:'silence'});
+      }
+    }
+  }catch(e){ /* trame ignorée, la boucle continue */ }
 }
 function emit(ev){ listeners.forEach(fn => { try{ fn(ev); }catch(e){ console.error(e); } }); }
 
@@ -663,7 +684,7 @@ document.getElementById('ampToggle').addEventListener('click', () => {
    ============================================================ */
 const nam = { script:false, module:null, ctx:null, node:null, src:null,
               inGain:null, gate:null, cabConv:null, cabWet:null, cabDry:null, vol:null,
-              ready:false, on:false, loading:false };
+              ready:false, on:false, loading:false, gateThr:0.012 };
 const NAM_FORCE_NANO = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 1 : 0;
 
 function namSupported(){
@@ -737,7 +758,11 @@ async function namLoadCab(url){
   nam.cabWet.gain.value = 1; nam.cabDry.gain.value = 0;
 }
 function namApply(){
+  // Le seuil du gate est lu même sans chaîne construite (utilisé par processFrame)
+  const g = parseFloat(document.getElementById('namGate').value);
+  nam.gateThr = g > 0 ? 0.004 + (g/100)*0.03 : 0;
   if (!nam.vol) return;
+  if (nam.gateThr === 0) nam.gate.gain.value = 1; // gate coupé → toujours ouvert
   nam.vol.gain.value = nam.on ? (parseFloat(document.getElementById('namVol').value)/100)*1.2 : 0;
   nam.inGain.gain.value = 0.2 + (parseFloat(document.getElementById('namIn').value)/100)*3;
 }
@@ -813,7 +838,7 @@ document.getElementById('namModel').addEventListener('change', async () => {
 document.getElementById('namCab').addEventListener('change', () => {
   if (nam.ready) namLoadCab(document.getElementById('namCab').value).catch(e => namStatus('erreur baffle', 'err'));
 });
-['namVol','namIn'].forEach(id => document.getElementById(id).addEventListener('input', namApply));
+['namVol','namIn','namGate'].forEach(id => document.getElementById(id).addEventListener('input', namApply));
 /* Rigs de légende : ampli + baffle + gains préréglés pour les riffs connus */
 const NAM_RIGS = [
   {n:'AC/DC – Back in Black', m:'jcm2000-crunch', cab:'celestion', vin:55, vol:70},
