@@ -12,7 +12,10 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-180.png">
 <!-- Isolation cross-origin (SharedArrayBuffer pour l'ampli neuronal NAM).
-     Sur GitHub Pages, ce service worker injecte les en-têtes COOP/COEP. -->
+     Sur GitHub Pages, ce service worker injecte les en-têtes COOP/COEP.
+     quiet + coepDegrade:false → évite la boucle de rechargements en mode
+     app installée (le « ça se rafraîchit » quand on jouait). -->
+<script>window.coi = { quiet: true, coepDegrade: () => false };</script>
 <script src="coi-serviceworker.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -159,7 +162,7 @@
     <div class="sliders grid">
       <label>Gain d'entrée <input type="range" id="namIn" min="0" max="100" value="50"></label>
       <label>Volume <input type="range" id="namVol" min="0" max="100" value="70"></label>
-      <label>Noise gate (anti-souffle) <input type="range" id="namGate" min="0" max="100" value="35"></label>
+      <label>Noise gate (anti-souffle) <input type="range" id="namGate" min="0" max="100" value="18"></label>
     </div>
     <div class="row" style="margin-top:10px">
       <button class="btn" id="namFileBtn">📂 Charger un ampli .nam (TONE3000)</button>

@@ -92,11 +92,12 @@ function processFrame(){
         amp.wahBp.frequency.setTargetAtTime(350 + wahEnv*2800, tNow, 0.03);
       }
     }
-    // Gate de l'ampli neuronal : son PROPRE seuil, actif dès qu'il joue —
-    // plus besoin de toucher au gate de l'ampli classique.
+    // Gate de l'ampli neuronal : expandeur DOUX, pas un couperet. Au repos on
+    // descend vers un plancher (–18 dB) au lieu du silence total, avec un
+    // relâchement lent → la résonance de la guitare n'est jamais hachée.
     if (nam.on && nam.gate && nam.gateThr > 0 && nam.ctx && nam.ctx.state === 'running'){
       const open = rms > nam.gateThr;
-      nam.gate.gain.setTargetAtTime(open ? 1 : 0, nam.ctx.currentTime, open ? 0.004 : 0.08);
+      nam.gate.gain.setTargetAtTime(open ? 1 : 0.12, nam.ctx.currentTime, open ? 0.005 : 0.16);
     }
 
     if (diagTick % 45 === 0) updateDiag(rms);
@@ -115,9 +116,10 @@ function processFrame(){
 
     // ----- Détection de hauteur (coûteuse) -----
     // Le réseau de neurones du NAM consomme déjà beaucoup de CPU. On espace
-    // alors la détection (30 Hz au lieu de 90 Hz) pour éviter la surcharge
-    // qui faisait planter l'iPhone. Sans NAM : pleine cadence.
-    if (nam.on && diagTick % 3 !== 0) return;
+    // fortement la détection (15 Hz au lieu de 90 Hz) pour laisser respirer
+    // le processeur de l'iPhone et éviter les plantages. Sans NAM : pleine
+    // cadence (90 Hz), la détection reste ultra-réactive pour les jeux.
+    if (nam.on && diagTick % 6 !== 0) return;
 
     const {freq, clarity} = autoCorrelate(timeBuf, audioCtx.sampleRate);
     if (freq > 0 && freq >= 70 && freq <= 1500){
@@ -733,13 +735,19 @@ async function namSetDsp(jsonStr){
 function namBuildChain(){
   const c = nam.ctx;
   nam.inGain = c.createGain();
+  // Filtres anti-bruit (VRAI filtrage de fréquences, distinct du gate) :
+  // passe-haut = enlève le ronflement secteur 50/60 Hz et les rumbles graves
+  // (la corde grave Mi est à 82 Hz, donc préservée) ; un petit creux à 60 Hz
+  // attaque pile la fréquence du bourdonnement électrique.
+  nam.hp = c.createBiquadFilter(); nam.hp.type = 'highpass'; nam.hp.frequency.value = 82; nam.hp.Q.value = 0.7;
+  nam.hum = c.createBiquadFilter(); nam.hum.type = 'notch'; nam.hum.frequency.value = 60; nam.hum.Q.value = 6;
   nam.gate = c.createGain();
   nam.cabConv = c.createConvolver(); nam.cabConv.normalize = true;
   nam.cabWet = c.createGain(); nam.cabDry = c.createGain();
   nam.vol = c.createGain(); nam.vol.gain.value = 0;
   nam.vol.channelCount = 1; nam.vol.channelCountMode = 'explicit'; // mono centré
   const merge = c.createGain();
-  nam.inGain.connect(nam.gate); nam.gate.connect(nam.node);
+  nam.inGain.connect(nam.hp); nam.hp.connect(nam.hum); nam.hum.connect(nam.gate); nam.gate.connect(nam.node);
   nam.node.connect(nam.cabDry); nam.cabDry.connect(merge);
   nam.node.connect(nam.cabConv); nam.cabConv.connect(nam.cabWet); nam.cabWet.connect(merge);
   merge.connect(nam.vol); nam.vol.connect(c.destination);
@@ -758,9 +766,10 @@ async function namLoadCab(url){
   nam.cabWet.gain.value = 1; nam.cabDry.gain.value = 0;
 }
 function namApply(){
-  // Le seuil du gate est lu même sans chaîne construite (utilisé par processFrame)
+  // Le seuil du gate est lu même sans chaîne construite (utilisé par processFrame).
+  // Plage volontairement DOUCE (max ~0.019) pour ne pas couper la guitare.
   const g = parseFloat(document.getElementById('namGate').value);
-  nam.gateThr = g > 0 ? 0.004 + (g/100)*0.03 : 0;
+  nam.gateThr = g > 0 ? 0.003 + (g/100)*0.016 : 0;
   if (!nam.vol) return;
   if (nam.gateThr === 0) nam.gate.gain.value = 1; // gate coupé → toujours ouvert
   nam.vol.gain.value = nam.on ? (parseFloat(document.getElementById('namVol').value)/100)*1.2 : 0;
