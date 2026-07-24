@@ -120,6 +120,19 @@ function processFrame(){
     // Du vrai signal pendant ~1 s → l'entrée est fiable, on remet les compteurs à zéro
     if (rms > 0.001){ if (++signalFrames === 90){ micFailCounts = {}; micDiagLog('signal stable ✓'); } }
     else if (signalFrames < 90) signalFrames = 0;
+    // Gain d'entrée AUTOMATIQUE : on suit le pic (avec mémoire ~5 s) et on vise
+    // un niveau confortable (12 %). Gelé pendant les silences pour ne pas
+    // amplifier le bruit de fond. Le rms mesuré étant déjà post-gain, la
+    // formule converge : gain × (cible / pic_mesuré).
+    if (rms > 0.005 && micBoostNode){
+      boostPeak = Math.max(rms, boostPeak*0.998);
+      if (++boostTick % 45 === 0){
+        let g = micBoostVal * (0.12 / Math.max(boostPeak, 0.004));
+        g = Math.min(24, Math.max(1, g));
+        micBoostVal = micBoostVal*0.6 + g*0.4;
+        micBoostNode.gain.setTargetAtTime(micBoostVal, audioCtx.currentTime, 0.4);
+      }
+    }
 
     // ----- Détection de hauteur (coûteuse) -----
     // Le réseau de neurones du NAM consomme déjà beaucoup de CPU. On espace
@@ -159,7 +172,21 @@ let sessionInputOverride = null, autoSwitched = false, forceRate = 0;
 // supportent pas nos contraintes strictes (traitements désactivés) et coupent
 // après ~0,5 s. On compte les morts par appareil ; 2 morts rapides → on
 // rebascule cet appareil en mode « compatible » (réglages par défaut du navigateur).
-let micFailCounts = {}, micRelaxed = false, micStableTimer = null, micMuteTimer = null;
+let micFailCounts = {}, micStableTimer = null, micMuteTimer = null;
+// Modes d'entrée, du meilleur son au plus compatible. Le n°1 est la clé pour
+// les prises jack Realtek : l'écho-annulation active évite l'effondrement du
+// flux, mais on garde la suppression de bruit COUPÉE (sinon Windows/Chrome
+// prennent la guitare pour du bruit et l'écrasent à 0,01 %).
+const MIC_MODES = [
+  { echoCancellation:false, noiseSuppression:false, autoGainControl:false }, // 0 : qualité max
+  { echoCancellation:true,  noiseSuppression:false, autoGainControl:false }, // 1 : anti-crash Realtek, guitare préservée
+  {}                                                                          // 2 : tout par défaut (dernier recours)
+];
+let micMode = 0;
+// Amplificateur d'entrée automatique : les prises jack délivrent souvent un
+// signal minuscule — on le remonte doucement vers un niveau exploitable.
+let micBoostNode = null, micBoostVal = 1, boostPeak = 0.001, boostTick = 0;
+let micKeepAlive = null; // élément <audio> muet qui empêche le flux de s'endormir
 let lastDeviceKey = 'default', signalFrames = 0, micAbandoned = false;
 // Journal de diagnostic (bouton 🩺 dans Studio → Micro)
 let micDiagBuf = [];
@@ -173,13 +200,16 @@ function micSourceDied(id){
   micFailCounts[id] = (micFailCounts[id]||0) + 1;
   const n = micFailCounts[id];
   micDiagLog('PANNE #' + n + ' (' + id.slice(0,10) + ')');
-  if (n === 2 && !micRelaxed){
-    micRelaxed = true;
-    micDiagLog('→ secours : mode compatible');
-  } else if (n === 3){
+  if (n === 2 && micMode < 1){
+    micMode = 1;
+    micDiagLog('→ secours : écho-annulation seule (anti-crash, guitare préservée)');
+  } else if (n === 3 && micMode < 2){
+    micMode = 2;
+    micDiagLog('→ secours : mode compatible complet');
+  } else if (n === 4){
     forceRate = (audioCtx && audioCtx.sampleRate === 48000) ? 44100 : 48000;
     micDiagLog('→ secours : fréquence forcée ' + forceRate + ' Hz');
-  } else if (n >= 5){
+  } else if (n >= 6){
     micOn = false; micAbandoned = true; updateMicUI();
     micDiagLog('ABANDON après 5 pannes');
     const el = document.getElementById('micDiag');
@@ -196,7 +226,8 @@ async function runMicReport(){
   const t0 = micDiagBuf.length; // conserve l'historique des pannes déjà loggé
   micDiagLog('=== DIAGNOSTIC MANUEL ===');
   micDiagLog('navigateur: ' + navigator.userAgent);
-  micDiagLog('mode: relaxed=' + micRelaxed + ' forceRate=' + forceRate + ' pannes=' + JSON.stringify(micFailCounts));
+  micDiagLog('mode: ' + micMode + ' (0=qualité 1=EC-seule 2=défaut)  gainAuto=×' + micBoostVal.toFixed(1) + '  forceRate=' + forceRate + '  pannes=' + JSON.stringify(micFailCounts));
+  micDiagLog('keep-alive: ' + (micKeepAlive ? (micKeepAlive.paused ? 'EN PAUSE ⚠️' : 'actif ✓') : 'absent'));
   const t = micTrack();
   if (t){
     micDiagLog('piste: "' + t.label + '" state=' + t.readyState + ' muted=' + t.muted);
@@ -239,10 +270,15 @@ async function startMic(){
   try{
     // Mode strict (qualité guitare) ou compatible (si l'appareil a coupé 2×).
     // NB : plus de `latency:0` — cette contrainte faisait planter certains pilotes.
-    const constraints = micRelaxed ? {} : { echoCancellation:false, noiseSuppression:false, autoGainControl:false };
+    const constraints = Object.assign({}, MIC_MODES[Math.min(micMode, MIC_MODES.length-1)]);
     if (devId) constraints.deviceId = { exact: devId };
     const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
     micStream = stream;
+    // KEEP-ALIVE : sans un « consommateur » actif, Chrome endort le flux d'une
+    // entrée jack après quelques secondes (le pilote Realtek se met en veille).
+    // Un élément <audio> MUET qui « lit » le flux le garde éveillé en permanence.
+    if (!micKeepAlive){ micKeepAlive = new Audio(); micKeepAlive.muted = true; micKeepAlive.autoplay = true; }
+    try{ micKeepAlive.srcObject = stream; micKeepAlive.play().catch(()=>{}); }catch(e){}
     const track = stream.getAudioTracks()[0];
     const trackRate = forceRate || ((track.getSettings && track.getSettings().sampleRate) || 0);
     await ensureContext(trackRate || undefined);
@@ -254,20 +290,25 @@ async function startMic(){
     // Référence GLOBALE forte : sans elle, le ramasse-miettes du navigateur
     // détruit ce nœud au bout de ~0,5 s → le son ET l'analyse se coupent.
     try{ if (micSrcNode) micSrcNode.disconnect(); }catch(e){}
+    try{ if (micBoostNode) micBoostNode.disconnect(); }catch(e){}
     const src = audioCtx.createMediaStreamSource(stream);
     micSrcNode = src;
+    // Gain d'entrée automatique (conservé d'un redémarrage à l'autre)
+    micBoostNode = audioCtx.createGain();
+    micBoostNode.gain.value = micBoostVal;
+    src.connect(micBoostNode);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
-    src.connect(analyser);
+    micBoostNode.connect(analyser);
     timeBuf = new Float32Array(analyser.fftSize);
     const ampWasOn = amp && amp.on;
     if (amp){ try{ amp.master.disconnect(); }catch(e){} }
-    amp = buildAmp(audioCtx, src);
+    amp = buildAmp(audioCtx, micBoostNode);
     ampApply();
     if (ampWasOn){ amp.on = true; amp.master.gain.value = 1; }
     const deviceKey = devId || 'default';
     lastDeviceKey = deviceKey;
-    signalFrames = 0; zeroFrames = 0; micAbandoned = false;
+    signalFrames = 0; zeroFrames = 0; micAbandoned = false; boostPeak = 0.001; boostTick = 0;
     micDiagLog('démarré: "' + (track.label||'?') + '" @' + audioCtx.sampleRate + 'Hz  contraintes=' + JSON.stringify(constraints));
     track.addEventListener('ended', () => { micDiagLog('événement: ended'); if (micOn) micSourceDied(deviceKey); });
     // Un « mute » qui dure >1,5 s = flux mort (pilote qui a lâché) → même traitement
@@ -370,7 +411,7 @@ function updateDiag(rms){
   // (L'aller-retour complet ajoute la latence d'entrée, non mesurable, ~+10 ms.)
   const ctxRef = (nam.on && nam.ctx) ? nam.ctx : audioCtx;
   const latMs = Math.round(((ctxRef.baseLatency || 0) + (ctxRef.outputLatency || 0)) * 1000);
-  el.textContent = `Entrée : ${t.label || 'micro'} @ ${audioCtx.sampleRate} Hz — niveau ${niveau} % / seuil ${seuil} %` +
+  el.textContent = `Entrée : ${t.label || 'micro'} @ ${audioCtx.sampleRate} Hz — niveau ${niveau} % / seuil ${seuil} % — gain auto ×${micBoostVal.toFixed(1)}` +
     (latMs ? ` — sortie ${latMs} ms${nam.on ? ' (NAM)' : ''}` : '') +
     (rms >= RMS_THRESHOLD ? ' ✓ son détecté' : ' — sous le seuil');
 }
