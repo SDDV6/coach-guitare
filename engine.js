@@ -908,6 +908,7 @@ async function namCalibrateGate(){
 document.getElementById('namGateCal').addEventListener('click', namCalibrateGate);
 /* Rigs de légende : ampli + baffle + gains préréglés pour les riffs connus */
 const NAM_RIGS = [
+  {n:'Cachemire – La Veste (guitare isolée & analysée)', m:'ac15', cab:'celestion', vin:48, vol:70},
   {n:'AC/DC – Back in Black', m:'jcm2000-crunch', cab:'celestion', vin:55, vol:70},
   {n:'Guns N’ Roses – Sweet Child O’ Mine', m:'jcm', cab:'celestion', vin:60, vol:70},
   {n:'Nirvana – Smells Like Teen Spirit', m:'jcm2000-crunch', cab:'celestion', vin:72, vol:70},
