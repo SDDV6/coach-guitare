@@ -217,6 +217,10 @@
       <label>Sensibilité (guitare non branchée → à droite) <input type="range" id="sensSlider" min="0" max="100" value="40"></label>
     </div>
     <p class="hint" id="micDiag" style="color:var(--accent)">Micro : inactif.</p>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" id="micReportBtn">🩺 Diagnostic micro (12 s)</button>
+    </div>
+    <pre id="micReport" style="display:none; white-space:pre-wrap; font-size:.7rem; line-height:1.5; background:var(--surface2); border:1px solid var(--border2); border-radius:10px; padding:10px; margin-top:10px; user-select:all; -webkit-user-select:all; max-height:240px; overflow:auto"></pre>
   </div>
 </section>
 

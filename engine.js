@@ -107,13 +107,19 @@ function processFrame(){
       if (micOn && audioCtx.state !== 'running' && audioCtx.state !== 'closed') audioCtx.resume().catch(()=>{});
       if (nam.on && nam.ctx && nam.ctx.state !== 'running' && nam.ctx.state !== 'closed') nam.ctx.resume().catch(()=>{});
     }
-    // Garde-fou anti-silence (bug Safari de fréquence d'échantillonnage)
+    // Garde-fou « mort silencieuse » : piste vivante mais échantillons NULS.
+    // C'est LA panne des micros jack/USB sous Windows (aucun événement émis !) :
+    // on la traite comme une vraie panne pour dérouler l'échelle de secours
+    // (relance → mode compatible → bascule 44,1/48 kHz → stop + rapport).
     if (rms === 0 && micHealthy()) zeroFrames++; else zeroFrames = 0;
-    if (zeroFrames === 270 && !rateFixTried){
-      rateFixTried = true;
-      forceRate = (audioCtx.sampleRate === 48000) ? 44100 : 48000;
-      restartMic();
+    if (zeroFrames === 110){ // ~1,2 s de zéros absolus
+      zeroFrames = 0;
+      micDiagLog('mort silencieuse (1,2 s de zéros)');
+      micSourceDied(lastDeviceKey);
     }
+    // Du vrai signal pendant ~1 s → l'entrée est fiable, on remet les compteurs à zéro
+    if (rms > 0.001){ if (++signalFrames === 90){ micFailCounts = {}; micDiagLog('signal stable ✓'); } }
+    else if (signalFrames < 90) signalFrames = 0;
 
     // ----- Détection de hauteur (coûteuse) -----
     // Le réseau de neurones du NAM consomme déjà beaucoup de CPU. On espace
@@ -154,19 +160,56 @@ let sessionInputOverride = null, autoSwitched = false, forceRate = 0;
 // après ~0,5 s. On compte les morts par appareil ; 2 morts rapides → on
 // rebascule cet appareil en mode « compatible » (réglages par défaut du navigateur).
 let micFailCounts = {}, micRelaxed = false, micStableTimer = null, micMuteTimer = null;
+let lastDeviceKey = 'default', signalFrames = 0, micAbandoned = false;
+// Journal de diagnostic (bouton 🩺 dans Studio → Micro)
+let micDiagBuf = [];
+function micDiagLog(msg){
+  if (micDiagBuf.length < 500) micDiagBuf.push((performance.now()/1000).toFixed(1) + 's  ' + msg);
+}
+// Échelle de secours : chaque panne du même appareil déclenche l'étape suivante.
+// 1 = simple relance · 2 = mode compatible (traitements navigateur) ·
+// 3 = bascule de fréquence 44,1↔48 kHz · 4 = relance · 5 = stop + rapport
 function micSourceDied(id){
   micFailCounts[id] = (micFailCounts[id]||0) + 1;
-  if (micFailCounts[id] >= 5){ // on arrête de s'acharner
-    micOn = false; updateMicUI();
+  const n = micFailCounts[id];
+  micDiagLog('PANNE #' + n + ' (' + id.slice(0,10) + ')');
+  if (n === 2 && !micRelaxed){
+    micRelaxed = true;
+    micDiagLog('→ secours : mode compatible');
+  } else if (n === 3){
+    forceRate = (audioCtx && audioCtx.sampleRate === 48000) ? 44100 : 48000;
+    micDiagLog('→ secours : fréquence forcée ' + forceRate + ' Hz');
+  } else if (n >= 5){
+    micOn = false; micAbandoned = true; updateMicUI();
+    micDiagLog('ABANDON après 5 pannes');
     const el = document.getElementById('micDiag');
-    if (el) el.textContent = '⚠️ Cette entrée audio coupe en boucle. Essaie une autre « Source du son », ou débranche/rebranche l\'appareil.';
+    if (el) el.textContent = '⚠️ Cette entrée coupe en boucle malgré les modes de secours. Lance le « 🩺 Diagnostic » ci-dessous et envoie le rapport.';
     return;
   }
-  if (micFailCounts[id] >= 2 && !micRelaxed){
-    micRelaxed = true; // mode compatible : on laisse le navigateur gérer les traitements
-    console.warn('Entrée audio instable → bascule en mode compatible');
-  }
   restartMic();
+}
+// Rapport de diagnostic : 12 s d\'observation détaillée, à copier-coller
+async function runMicReport(){
+  const out = document.getElementById('micReport');
+  out.style.display = 'block';
+  out.textContent = 'Diagnostic en cours (12 s)… JOUE QUELQUES NOTES pendant le test !';
+  const t0 = micDiagBuf.length; // conserve l'historique des pannes déjà loggé
+  micDiagLog('=== DIAGNOSTIC MANUEL ===');
+  micDiagLog('navigateur: ' + navigator.userAgent);
+  micDiagLog('mode: relaxed=' + micRelaxed + ' forceRate=' + forceRate + ' pannes=' + JSON.stringify(micFailCounts));
+  const t = micTrack();
+  if (t){
+    micDiagLog('piste: "' + t.label + '" state=' + t.readyState + ' muted=' + t.muted);
+    try{ micDiagLog('réglages piste: ' + JSON.stringify(t.getSettings())); }catch(e){}
+  } else micDiagLog('piste: AUCUNE (micro non démarré ?)');
+  if (audioCtx) micDiagLog('contexte: ' + audioCtx.state + ' @' + audioCtx.sampleRate + ' Hz');
+  for (let i = 0; i < 24; i++){
+    await new Promise(r => setTimeout(r, 500));
+    const tt = micTrack();
+    micDiagLog('niveau=' + (lastMicRms*100).toFixed(2) + '%  piste=' + (tt ? tt.readyState + (tt.muted ? '/MUET' : '') : 'absente') + '  ctx=' + (audioCtx ? audioCtx.state : '—'));
+  }
+  micDiagLog('=== FIN ===');
+  out.textContent = micDiagBuf.join('\n');
 }
 
 // L'AudioContext est créé UNE fois (dans le geste utilisateur) puis réutilisé.
@@ -223,17 +266,20 @@ async function startMic(){
     ampApply();
     if (ampWasOn){ amp.on = true; amp.master.gain.value = 1; }
     const deviceKey = devId || 'default';
-    track.addEventListener('ended', () => { if (micOn) micSourceDied(deviceKey); });
+    lastDeviceKey = deviceKey;
+    signalFrames = 0; zeroFrames = 0; micAbandoned = false;
+    micDiagLog('démarré: "' + (track.label||'?') + '" @' + audioCtx.sampleRate + 'Hz  contraintes=' + JSON.stringify(constraints));
+    track.addEventListener('ended', () => { micDiagLog('événement: ended'); if (micOn) micSourceDied(deviceKey); });
     // Un « mute » qui dure >1,5 s = flux mort (pilote qui a lâché) → même traitement
     track.addEventListener('mute', () => {
+      micDiagLog('événement: mute');
       updateMicUI();
       clearTimeout(micMuteTimer);
       micMuteTimer = setTimeout(() => { if (micOn && track.muted) micSourceDied(deviceKey); }, 1500);
     });
-    track.addEventListener('unmute', () => { clearTimeout(micMuteTimer); updateMicUI(); });
-    // 6 s de fonctionnement stable → on oublie les échecs passés
-    clearTimeout(micStableTimer);
-    micStableTimer = setTimeout(() => { micFailCounts = {}; }, 6000);
+    track.addEventListener('unmute', () => { micDiagLog('événement: unmute'); clearTimeout(micMuteTimer); updateMicUI(); });
+    // NB : la remise à zéro des compteurs de panne ne se fait plus au bout d'un
+    // délai mais uniquement après 1 s de VRAI signal (voir processFrame).
     micOn = true;
     updateMicUI();
     document.getElementById('overlay').classList.add('hidden');
@@ -313,6 +359,7 @@ function updateMicUI(){
 }
 function updateDiag(rms){
   const el = document.getElementById('micDiag'); if (!el) return;
+  if (micAbandoned) return; // le message d'abandon reste affiché
   const t = micTrack();
   if (!micOn || !t){ el.textContent = 'Micro : inactif.'; return; }
   if (t.muted || t.readyState !== 'live'){ el.textContent = '⚠️ iOS a coupé le micro — appuie sur le bouton micro en haut.'; return; }
@@ -327,8 +374,12 @@ function updateDiag(rms){
     (latMs ? ` — sortie ${latMs} ms${nam.on ? ' (NAM)' : ''}` : '') +
     (rms >= RMS_THRESHOLD ? ' ✓ son détecté' : ' — sous le seuil');
 }
+document.getElementById('micReportBtn').addEventListener('click', runMicReport);
 document.getElementById('overlayBtn').addEventListener('click', startMic);
-document.getElementById('micBtn').addEventListener('click', () => { if (!micOn) startMic(); else restartMic(); });
+document.getElementById('micBtn').addEventListener('click', () => {
+  micFailCounts = {}; micAbandoned = false; // clic manuel = nouvelle chance complète
+  if (!micOn) startMic(); else restartMic();
+});
 document.addEventListener('visibilitychange', () => {
   if (document.hidden || !micOn) return;
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
