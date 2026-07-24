@@ -147,7 +147,7 @@ function processFrame(){
 }
 function emit(ev){ listeners.forEach(fn => { try{ fn(ev); }catch(e){ console.error(e); } }); }
 
-let micStream = null, loopRunning = false;
+let micStream = null, loopRunning = false, micSrcNode = null;
 let sessionInputOverride = null, autoSwitched = false, forceRate = 0;
 
 // L'AudioContext est créé UNE fois (dans le geste utilisateur) puis réutilisé.
@@ -187,7 +187,11 @@ async function startMic(){
     if (!cabIR || cabIR.sampleRate !== audioCtx.sampleRate){
       try{ cabIR = await makeCabIR(audioCtx); }catch(e){ cabIR = null; }
     }
+    // Référence GLOBALE forte : sans elle, le ramasse-miettes du navigateur
+    // détruit ce nœud au bout de ~0,5 s → le son ET l'analyse se coupent.
+    try{ if (micSrcNode) micSrcNode.disconnect(); }catch(e){}
     const src = audioCtx.createMediaStreamSource(stream);
+    micSrcNode = src;
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
     src.connect(analyser);
@@ -588,6 +592,7 @@ const SONG_PRESETS = {
     {n:'Métal moderne', p:{drive:88,vol:65,bass:5,mid:-5,treble:3,comp:15,chorus:0,dtime:300,dfb:20,dmix:0,rev:8}}
   ],
   'Sons clairs': [
+    {n:'Cachemire – La Veste (analysé, clair brillant)', p:{drive:12,vol:70,bass:-1,mid:2,treble:4,comp:35,chorus:15,dtime:300,dfb:20,dmix:0,rev:18}},
     {n:'Dire Straits – Sultans of Swing', p:{drive:10,vol:70,bass:0,mid:3,treble:3,comp:45,chorus:0,dtime:300,dfb:20,dmix:0,rev:22}},
     {n:'The Police – Every Breath You Take', p:{drive:6,vol:70,bass:1,mid:0,treble:3,comp:40,chorus:55,dtime:300,dfb:20,dmix:0,rev:18}},
     {n:'Nirvana – Come as You Are (couplet)', p:{drive:12,vol:70,bass:2,mid:0,treble:0,comp:20,chorus:80,dtime:300,dfb:20,dmix:0,rev:12}},
