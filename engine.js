@@ -149,6 +149,25 @@ function emit(ev){ listeners.forEach(fn => { try{ fn(ev); }catch(e){ console.err
 
 let micStream = null, loopRunning = false, micSrcNode = null;
 let sessionInputOverride = null, autoSwitched = false, forceRate = 0;
+// Anti-« flux qui meurt » : certains pilotes (iRig sur Windows notamment) ne
+// supportent pas nos contraintes strictes (traitements désactivés) et coupent
+// après ~0,5 s. On compte les morts par appareil ; 2 morts rapides → on
+// rebascule cet appareil en mode « compatible » (réglages par défaut du navigateur).
+let micFailCounts = {}, micRelaxed = false, micStableTimer = null, micMuteTimer = null;
+function micSourceDied(id){
+  micFailCounts[id] = (micFailCounts[id]||0) + 1;
+  if (micFailCounts[id] >= 5){ // on arrête de s'acharner
+    micOn = false; updateMicUI();
+    const el = document.getElementById('micDiag');
+    if (el) el.textContent = '⚠️ Cette entrée audio coupe en boucle. Essaie une autre « Source du son », ou débranche/rebranche l\'appareil.';
+    return;
+  }
+  if (micFailCounts[id] >= 2 && !micRelaxed){
+    micRelaxed = true; // mode compatible : on laisse le navigateur gérer les traitements
+    console.warn('Entrée audio instable → bascule en mode compatible');
+  }
+  restartMic();
+}
 
 // L'AudioContext est créé UNE fois (dans le geste utilisateur) puis réutilisé.
 async function ensureContext(desiredRate){
@@ -175,7 +194,9 @@ async function startMic(){
   const pref = localStorage.getItem('cg_input') || 'auto';
   const devId = pref !== 'auto' ? pref : sessionInputOverride;
   try{
-    const constraints = { echoCancellation:false, noiseSuppression:false, autoGainControl:false, latency:0 };
+    // Mode strict (qualité guitare) ou compatible (si l'appareil a coupé 2×).
+    // NB : plus de `latency:0` — cette contrainte faisait planter certains pilotes.
+    const constraints = micRelaxed ? {} : { echoCancellation:false, noiseSuppression:false, autoGainControl:false };
     if (devId) constraints.deviceId = { exact: devId };
     const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
     micStream = stream;
@@ -201,9 +222,18 @@ async function startMic(){
     amp = buildAmp(audioCtx, src);
     ampApply();
     if (ampWasOn){ amp.on = true; amp.master.gain.value = 1; }
-    track.addEventListener('mute', updateMicUI);
-    track.addEventListener('unmute', updateMicUI);
-    track.addEventListener('ended', () => { if (micOn) restartMic(); });
+    const deviceKey = devId || 'default';
+    track.addEventListener('ended', () => { if (micOn) micSourceDied(deviceKey); });
+    // Un « mute » qui dure >1,5 s = flux mort (pilote qui a lâché) → même traitement
+    track.addEventListener('mute', () => {
+      updateMicUI();
+      clearTimeout(micMuteTimer);
+      micMuteTimer = setTimeout(() => { if (micOn && track.muted) micSourceDied(deviceKey); }, 1500);
+    });
+    track.addEventListener('unmute', () => { clearTimeout(micMuteTimer); updateMicUI(); });
+    // 6 s de fonctionnement stable → on oublie les échecs passés
+    clearTimeout(micStableTimer);
+    micStableTimer = setTimeout(() => { micFailCounts = {}; }, 6000);
     micOn = true;
     updateMicUI();
     document.getElementById('overlay').classList.add('hidden');
